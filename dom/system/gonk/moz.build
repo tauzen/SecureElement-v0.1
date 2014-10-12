@@ -96,6 +96,11 @@ if CONFIG['MOZ_B2G_RIL']:
         'ril_worker.js',
     ]
 
+EXTRA_COMPONENTS += [
+    'SecureElement.js',
+    'SecureElement.manifest',
+]
+
 FAIL_ON_WARNINGS = True
 
 include('/ipc/chromium/chromium-config.mozbuild')

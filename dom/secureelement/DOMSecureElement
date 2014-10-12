@@ -1,0 +1,440 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this file,
+ * You can obtain one at http://mozilla.org/MPL/2.0/. */
+
+/* Copyright © 2013, Deutsche Telekom, Inc. */
+
+"use strict";
+
+const DEBUG = true;
+function debug(s) {
+  if (DEBUG) {
+    dump("-*- SecureElement DOM: " + s + "\n");
+  }
+}
+
+const Cc = Components.classes;
+const Ci = Components.interfaces;
+const Cu = Components.utils;
+
+Cu.import("resource://gre/modules/XPCOMUtils.jsm");
+Cu.import("resource://gre/modules/Services.jsm");
+Cu.import("resource://gre/modules/DOMRequestHelper.jsm");
+
+XPCOMUtils.defineLazyServiceGetter(this, "cpmm",
+                                   "@mozilla.org/childprocessmessagemanager;1",
+                                   "nsISyncMessageSender");
+
+/*
+ * Helper object to get / set 'SEReader' & 'SEChannel' objects
+ */
+let SEHelper = {
+  _reader: null,
+  
+  _channel: null,
+
+  setReader(reader) {
+    this._reader = reader;
+  },
+ 
+  getReader() {
+    return this._reader;
+  },
+
+  setChannel(channel) {
+    this._channel = channel;
+  },
+
+  getChannel() {
+    return this._channel;
+  }
+};
+
+function PromiseHelpersSubclass(win) {
+   this._window = win;
+}
+PromiseHelpersSubclass.prototype = {
+  _window: null,
+
+  __proto__: DOMRequestIpcHelper.prototype,
+
+  _getPromise: function(aCallback) {
+    let self = this;
+    return this.createPromise(function(aResolve, aReject) {
+      let resolverId = self.getPromiseResolverId({
+        resolve: aResolve,
+        reject: aReject
+      });
+      // TBD: On some condition, say
+      if (false) {
+        self.removePromiseResolver(resolverId);
+        reject('SEManager is not active.');
+        return;
+      }
+      aCallback(resolverId);
+    });
+  }
+};
+
+// Helper class to create promises
+let PromiseHelpers;
+
+/**
+ * ==============================================
+ * SECommand
+ * ==============================================
+ */
+
+function SECommand(cla, ins, p1, p2, data, len) {
+  debug('In SECommand Constructor');
+}
+
+SECommand.prototype = {
+  __init: function (cla, ins, p1, p2, data, len) {
+    debug('In SECommand __init');
+    this.cla = cla;
+    this.ins = ins;
+    this.p1 = p1;
+    this.p2 = p2;
+    this.data = data
+    this.len = len;
+  },
+
+  classID: Components.ID("{cb8ccb1c-0e99-4a62-bf7d-11acc13848e0}"),
+  contractID: "@mozilla.org/secureelement/SECommand;1",
+  QueryInterface: XPCOMUtils.generateQI([Ci.nsISupports]),
+};
+
+
+/**
+ * ==============================================
+ * SEResponse
+ * ==============================================
+ */
+
+function SEResponse(win, respApdu, channel) {
+  this._window = win;
+  this.sw1 = 0x00;
+  this.sw2 = 0x00;
+  this.data = null;
+  this.status = 0;
+  this.channel = channel;
+  if (respApdu.length < 2) {
+    debug('Response APDU : Invalid length ' + respApdu.length);
+    return;
+  }
+
+  if (respApdu.length > 2) {
+    this.data = respApdu.slice(0, respApdu.length - 2);
+  }
+  debug('Response APDU STEP 2');
+  this.sw1 = 0x00FF & respApdu[respApdu.length - 2];
+  this.sw2 = 0x00FF & respApdu[respApdu.length - 1];
+  this.status = (this.sw1 << 8) | this.sw2;
+  debug('Response APDU STEP 3');
+}
+
+SEResponse.prototype = {
+  classID: Components.ID("{58bc6c7b-686c-47cc-8867-578a6ed23f4e}"),
+  contractID: "@mozilla.org/secureelement/SEResponse;1",
+  QueryInterface: XPCOMUtils.generateQI([]),
+};
+
+/**
+ * ==============================================
+ * SEChannel
+ * ==============================================
+ */
+
+function SEChannel(win, aid, reader) {
+  this._window = win;
+  this.isClosed = false;
+  this.reader = reader;
+  this._aid = aid;
+}
+
+SEChannel.prototype = {
+  classID: Components.ID("{181ebcf4-5164-4e28-99f2-877ec6fa83b9}"),
+  contractID: "@mozilla.org/secureelement/SEChannel;1",
+  QueryInterface: XPCOMUtils.generateQI([]),
+
+  transmit: function(command) {
+    debug("In transmit len: " + command.length);
+    // TBD: Verify the sacntity of 'pdu'
+    if (command == null || command.length < 4) {
+      throw new Error("Invalid APDU");
+    }
+    if (this.isClosed) {
+      throw new Error("Channel Already Closed!");
+    }
+
+    let buf = _getBufFromCommand(command);
+
+    // Clone data object using structured clone algorithm.
+    let apdu = null;
+    if (pdu) {
+      //apdu = Cu.cloneInto(pdu, this._window);
+    }
+    return PromiseHelpers._getPromise(function(aResolverId) {
+      cpmm.sendAsyncMessage("ACE:TransmitAPDU", {
+        resolverId: aResolverId,
+        apdu: buf
+      });
+    });
+  },
+
+  close: function() {
+    if (this.isClosed) {
+      throw new Error("Session Already Closed!");
+    }
+    return PromiseHelpers._getPromise(function(aResolverId) {
+      cpmm.sendAsyncMessage("ACE:CloseChannel", {
+        resolverId: aResolverId,
+        aid: this_aid
+      });
+    });
+    this.isClosed = true;
+  },
+
+  _getBufFromCommand: function(command) {
+    let index = 0;
+    let array[];
+      array[index] = command.cla & 0xff;
+      array[++index] = command.ins & 0xff;
+      array[++index] = command.p1 & 0xff;
+      array[++index] = command.p2 & 0xff;
+      if (command.data != null || command.data != undefined) {
+        for (int i = 0; i < command.data.length ; i++) {
+          array[++index] = command.data[i];
+        }
+      }
+      array[++index] = command.le;
+      for (int i = 0; i < array.length ; i++) {
+        debug("Array vals : " + array[i]);
+      }
+      return array;
+  }
+};
+
+/**
+ * ==============================================
+ * SESession
+ * ==============================================
+ */
+
+function SESession(win) {
+  this._window = win;
+  this.isClosed = false;
+}
+
+SESession.prototype = {
+  classID: Components.ID("{2b1809f8-17bd-4947-abd7-bdef1498561c}"),
+  contractID: "@mozilla.org/secureelement/SESession;1",
+  QueryInterface: XPCOMUtils.generateQI([]),
+
+  openBasicChannel: function(aid) {
+    debug("NOT IMPLEMENTED!!!")
+  },
+
+  openLogicalChannel: function(aid) {
+    debug("In openLogicalChannel");
+    if(aid == null || aid.length == 0) {
+      // TBD: Should this be treated as default application selection ?
+    }
+    if (this.isClosed) {
+      throw new Error("Session Already Closed!");
+    }
+    if (aid) {
+      this.aid = Cu.cloneInto(aid, this._window);
+    }
+    let self = this;
+    return PromiseHelpers._getPromise(function(aResolverId) {
+      // TBD: Creation SEChannel object should be more dynamic.
+      //     DOMSEManager should query 'ril' to see atleast SIM Card is present atleast before constructing the obj ?
+      cpmm.sendAsyncMessage("ACE:OpenChannel", {
+        resolverId: aResolverId,
+        aid: self.aid
+      });
+    });
+  },
+
+  closeAll: function() {
+    return PromiseHelpers._getPromise(function(aResolverId) {
+      cpmm.sendAsyncMessage("ACE:CloseAllBySession", {
+        resolverId: aResolverId
+      });
+      debug("In closeAllBySession");
+    });
+    this.isClosed = true;
+  }
+};
+
+/**
+ * ==============================================
+ * SEReader
+ * ==============================================
+ */
+
+function SEReader(win, aType) {
+  this._window = win;
+  this.type = aType;
+}
+
+SEReader.prototype = {
+  _window: null,
+
+  classID: Components.ID("{1c7bdba3-cd35-4f8b-a546-55b3232457d5}"),
+  contractID: "@mozilla.org/secureelement/SEReader;1",
+  QueryInterface: XPCOMUtils.generateQI([]),
+
+  openSession: function() {
+    let self = this;
+    return PromiseHelpers._getPromise(function(resolverId) {
+      let resolver = PromiseHelpers.takePromiseResolver(resolverId);
+      if (!resolver) {
+        return;
+      }
+      // TBD: Creation SEReader object should be more dynamic.
+      //     DOMSEManager should query 'ril' to see atleast SIM Card is present atleast before constructing the obj ?
+      let chromeObj = new SESession(self._window);
+      let contentObj = self._window.SESession._create(self._window, chromeObj);
+      resolver.resolve(contentObj);
+    });
+
+  },
+
+  closeAll: function() {
+    debug("In CloseAllByReader");
+    return PromiseHelpers._getPromise(function(aResolverId) {
+      cpmm.sendAsyncMessage("ACE:CloseAllByReader", {
+        resolverId: aResolverId
+      });
+    });
+  }
+};
+
+/**
+ * ==============================================
+ * SEManager
+ * ==============================================
+ */
+function SEManager() {}
+
+SEManager.prototype = {
+  __proto__: DOMRequestIpcHelper.prototype,
+
+  _window: null,
+  _isAllowed: false,
+
+  classID: Components.ID("{9507e8c0-183e-11e4-8c21-0800200c9a66}"),
+
+  contractID: "@mozilla.org/navigatorSEManager;1",
+
+  QueryInterface: XPCOMUtils.generateQI([Ci.nsIDOMGlobalPropertyInitializer,
+                                         Ci.nsISupportsWeakReference,
+                                         Ci.nsIObserver]),
+
+  init: function SEManagerInit(win) {
+    this._window = win;
+    PromiseHelpers = new PromiseHelpersSubclass(this._window);
+    this.innerWindowID = win.QueryInterface(Ci.nsIInterfaceRequestor)
+                            .getInterface(Ci.nsIDOMWindowUtils)
+                            .currentInnerWindowID;
+
+    let principal = win.document.nodePrincipal;
+    let perm = Services.perms.testExactPermissionFromPrincipal(principal,
+                                                               "secureelement-manage");
+    if (perm === Ci.nsIPermissionManager.ALLOW_ACTION) {
+      this._isAllowed = true;
+    }
+
+    // Add the messages to be listened to.
+    const messages = ["ACE:OpenChannelResolved",
+                      "ACE:CloseChannelResolved",
+                      "ACE:TransmitAPDUResolved",
+                      "ACE:CloseAllByReaderResolved",
+                      "ACE:CloseAllBySessionResolved",
+                      "ACE:OpenChannelRejected",
+                      "ACE:CloseChannelRejected",
+                      "ACE:TransmitAPDURejected",
+                      "ACE:CloseAllByReaderRejected",
+                      "ACE:CloseAllBySessionRejected"];
+
+    this.initDOMRequestHelper(win, messages);
+  },
+
+  uninit: function SEManagerUninit() {
+    this.destroyDOMRequestHelper();
+    this._window = null;
+  },
+
+  _ensureAccess: function() {
+    if (!this._isAllowed) {
+      throw new this._window.DOMError("Security Exception!",
+                                      "Should have 'secureelement-manage' permssion.");
+    }
+  },
+
+  getSEReaders: function() {
+    this._ensureAccess();
+    let self = this;
+    return PromiseHelpers._getPromise(function(resolverId) {
+      let resolver = PromiseHelpers.takePromiseResolver(resolverId);
+      if (!resolver) {
+        return;
+      }
+      // TBD: Creation of SEReader object should be more dynamic!
+      //     DOMSEManager should query 'ril' to see if SIM Card is present atleast before constructing the obj ?
+
+      let readers = self._window.Array();
+      let chromeObj = new SEReader(self._window, 'uicc');
+      let contentObj = self._window.SEReader._create(self._window, chromeObj);
+      readers.push(contentObj);
+      resolver.resolve(readers);
+
+      // Update 'readers'
+      // TBD: Which 'reader' obj to persist. 
+      SEHelper.setReader(readers[0]);
+    });
+  },
+
+  receiveMessage: function(aMessage) {
+    let data = aMessage.json;
+    let respApdu = data.respApdu;
+    let chromeObj = null;
+    let contentObj = null;
+
+    debug("receiveMessage(): " + aMessage.name  + " " + JSON.stringify(data));
+
+    let resolver = PromiseHelpers.takePromiseResolver(data.resolverId);
+    if (!resolver) {
+      return;
+    }
+
+    switch (aMessage.name) {
+      case "ACE:OpenChannelResolved":
+        chromeObj = new SEChannel(this._window, data.aid, SEHelper.getReader());
+        contentObj = this._window.SEChannel._create(this._window, chromeObj);
+        resolver.resolve(contentObj);
+        // Update 'channel obj'
+        SEHelper.setChannel(contentObj);
+        break;
+      case "ACE:CloseAllByReaderResolved":
+      case "ACE:CloseAllBySessionResolved":
+      case "ACE:CloseChannelResolved":
+        resolver.resolve();
+        break;
+      case "ACE:TransmitAPDUResolved":
+        //let respApdu = data.respApdu;
+        let chromeObj = new SEResponse(this._window, respApdu, SEHelper.getChannel());
+        let contentObj = this._window.SEResponse._create(this._window, chromeObj);
+        resolver.resolve(contentObj);
+        break;
+      default:
+        debug("Could not find a handler for " + aMessage.name);
+        resolver.reject();
+    }
+  }
+};
+
+this.NSGetFactory = XPCOMUtils.generateNSGetFactory([SECommand, SEResponse, SEChannel, SESession, SEReader, SEManager]);
