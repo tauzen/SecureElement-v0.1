@@ -4,6 +4,9 @@
 
 /* Copyright © 2014, Deutsche Telekom, Inc. */
 
+/* globals dump, Components, XPCOMUtils, DOMRequestIpcHelper, iccProvider,
+   cpmm, Services */
+
 "use strict";
 
 const DEBUG = true;
@@ -31,6 +34,29 @@ XPCOMUtils.defineLazyServiceGetter(this, "iccProvider",
 
 const SE_TYPE_SIM = 0x00;
 const SE_TYPE_ESE  = 0x01;
+
+function byte2hexString(uint8arr) {
+  if (!uint8arr) {
+    return "";
+  }
+
+  var hexStr = "";
+  for (var i = 0; i < uint8arr.length; i++) {
+    var hex = (uint8arr[i] & 0xff).toString(16);
+    hex = (hex.length === 1) ? "0" + hex : hex;
+    hexStr += hex;
+  }
+  return hexStr.toUpperCase();
+}
+
+function hexString2byte(str) {
+  var a = [];
+  for(var i = 0, len = str.length; i < len; i+=2) {
+    a.push(parseInt(str.substr(i,2),16));
+  }
+  return new Uint8Array(a);
+}
+
 
 /*
  * Helper object to get / set 'SEReader' & 'SEChannel' objects
@@ -144,10 +170,10 @@ function SEResponse(win, respApdu, channelObj) {
   }
 
   if (respApdu.length > 2) {
-    this.data = respApdu.slice(0, respApdu.length - 2);
+    this.data = hexString2byte(respApdu[2]);
   }
-  this.sw1 = 0x00FF & respApdu[respApdu.length - 2];
-  this.sw2 = 0x00FF & respApdu[respApdu.length - 1];
+  this.sw1 = 0x00FF & respApdu[0];
+  this.sw2 = 0x00FF & respApdu[1];
   this.status = (this.sw1 << 8) | this.sw2;
 }
 
@@ -189,7 +215,6 @@ SEChannel.prototype = {
     // Len: 266 ==> 256 (Max data PDU) + 10 bytes (for above mentioned headers)
     let maxLen = 10; //command.data? 10 : 266;
     let array = new Uint8Array(maxLen);
-    let self = this;
     if (this.isClosed) {
       throw new Error("Channel Already Closed!");
     }    
@@ -207,15 +232,33 @@ SEChannel.prototype = {
     // Clone data object using structured clone algorithm.
     //let apdu = Cu.cloneInto(array, this._window);
    
-    return PromiseHelpers._createPromise(function(aResolverId) {
-      cpmm.sendAsyncMessage("SE:TransmitAPDU", {
-        resolverId: aResolverId,
-        apdu: array,
-        channelToken: self._channelToken,
-        aid: self._aid,
-        sessionId: self._sessionId,
-        appId: self._window.document.nodePrincipal.appId
-      });
+    let apdu = {
+      cla: command.cla,
+      command: command.ins,
+      p1: command.p1,
+      p2: command.p2,
+      path: null,
+      Lc: 0x02,
+      data: command.data,
+      data2: null
+    };
+
+    debug("APDU to be sent: " + JSON.stringify(apdu));
+    return new this._window.Promise((resolve, reject) => {
+      let request = iccProvider.iccExchangeAPDU(0, this._window , this._channelToken,  apdu);
+      request.onsuccess = () => {
+        debug("Got response from SIM: " +  JSON.stringify(request.result));
+        let chromeObj = new SEResponse(this._window, request.result, this);
+        let contentObj = this._window.SEResponse._create(this._window, chromeObj);
+
+        debug("resolving promise with object" + JSON.stringify(contentObj));
+        resolve(contentObj);
+      };
+
+      request.onerror = () => {
+        debug("exchange apdu failed");
+        reject();
+      };
     });
   },
 
@@ -223,14 +266,19 @@ SEChannel.prototype = {
     if (this.isClosed) {
       throw new Error("Session Already Closed!");
     }
-    return PromiseHelpers._createPromise(function(aResolverId) {
-      cpmm.sendAsyncMessage("SE:CloseChannel", {
-        resolverId: aResolverId,
-        aid: this_aid,
-        channelToken: this_channelToken
-      });
+
+    return new this._window.Promise((resolve, reject) => {
+      let request = iccProvider.iccCloseChannel(0, this._window, this._channelToken);
+      request.onsuccess = () => {
+        this.isClosed = true;
+        debug("closing channel");
+        resolve();
+      };
+      request.onerror = () => {
+        debug("channel close failed");
+        reject();
+      };
     });
-    this.isClosed = true;
   }
 };
 
@@ -245,6 +293,7 @@ function SESession(win, readerObj, sessionId) {
   this._sessionId    = sessionId;
   this.reader        = readerObj;
   this.isClosed      = false;
+  this._openedChannels  = [];
 }
 
 SESession.prototype = {
@@ -263,79 +312,39 @@ SESession.prototype = {
     if (this.isClosed) {
       throw new Error("Session Already Closed!");
     }
-    if (aid) {
-      this.aid = Cu.cloneInto(aid, this._window);
-    }
-    let self = this;
 
-   // Uncomment following code if you need to test latest QCOM build. Below code snippet
-   // only serves as a proof of concept
+    debug("waivin xrays");
+    this._aid = Cu.waiveXrays(aid);
+    let aidStr = byte2hexString(this._aid);
+    debug("opening channel to aid: " + aidStr);
+    return new this._window.Promise((resolve, reject) => {
+      let request = iccProvider.iccOpenChannel(0, this._window , aidStr);
+      request.onsuccess = () => {
+        debug("Got open channel success");
+        debug("request object: " + JSON.stringify(request));
+        // setting channelToken to channel id
+        let chromeObj = new SEChannel(this._window, aidStr, request.result , this, this._sessionId);
+        let contentObj = this._window.SEChannel._create(this._window, chromeObj);
+        this._openedChannels.push(chromeObj);
+        // Update "channel obj"
+        SEStateHelper.addChannelObj(contentObj, request.result);
+        debug("resolving promise with channel object");
+        resolve(contentObj);
+      };
 
-/*
-    let aidStr = '325041592E5359532E4444463031';
-    let request  = iccProvider.iccOpenChannel(1, this._window , aidStr );
-    request.onsuccess = function onsuccess() {
-       debug("In openLogicalChannel onsuccess 1--- ");
-            // CLA=0x00,  INS=0xa4, P1=0x00, p2=0x04, Lc=0x02, Data=0x5031
-            //var apdu = { cla: 0x00, command: 0xa4, p1: 0x00, p2: 0x04, path: null, Lc: 0x02, data: 0x5031, data2: null};
-
-            // cla:80, INS: D4, p1: 01, p2:00, Lc:00
-            var apdu = { cla: 0x80, command: 0xD4, p1: 0x01, p2: 0x00, path: null, Lc: 0x00, data2: null};
-       	    let request1  = iccProvider.iccExchangeAPDU(1, self._window , 2,  apdu);
-            let _self = self;
-	    request1.onsuccess = function onsuccess() {
-	            debug("In iccExchangeAPDU onsuccess 2");
-
-                    //  CLA=0x00,  INS=0xb0, P1=0x00, p2=0x00, Le=0x00
-                    var apdu1 = { cla: 0x92, command: 0xb0, p1: 0x00, p2: 0x00, path: null };
-	       	    let request2  = iccProvider.iccExchangeAPDU(1, _self._window , 2,  apdu1);
-                    let __self = _self;
-		    request2.onsuccess = function onsuccess() {
-                        debug("In iccExchangeAPDU onsuccess 2.1");
-			let request3  = iccProvider.iccCloseChannel(1, __self._window , 2 );
-			request3.onsuccess = function onsuccess() {
-			  debug("In iccCloseChannel onsuccess 3");
-			};
-			request3.onerror = function onerror() {
-			  debug("In iccCloseChannel onerror 3");
-			};
-		    };
-                    
-		    request2.onerror = function onerror() {
-                        debug("In iccExchangeAPDU onerror 2.1");
-                        
-		    };
-               
-	    };
-	    request1.onerror = function onerror() {
-	      debug("In iccExchangeAPDU onerror 2");
-	    };
-    };
-
-    request.onerror = function onerror() {
-      debug("In openLogicalChannel onerror 1");
-    };
-*/
-    
-
-    return PromiseHelpers._createPromise(function(aResolverId) {
-      cpmm.sendAsyncMessage("SE:OpenChannel", {
-        resolverId: aResolverId,
-        aid: aid,
-        sessionId: self._sessionId,
-        type: self.reader.type,
-        appId: self._window.document.nodePrincipal.appId
-      });
+      request.onerror = () => {
+        debug("openLogicalChannel onerror, rejecting promise");
+        reject();
+      };
     });
   },
 
   closeAll: function() {
-    return PromiseHelpers._createPromise(function(aResolverId) {
-      cpmm.sendAsyncMessage("SE:CloseAllBySession", {
-        resolverId: aResolverId
-      });
-    });
-    this.isClosed = true;
+    let promises = this._openedChannels.map((channel) => channel.close());
+
+    return this._window.Promise.all(promises)
+            .then(() =>  { this.isClosed = true; return this._window.Promise.resolve(); })
+            .catch(() => this._window.Promise.reject());
   }
 };
 
@@ -491,7 +500,7 @@ SEManager.prototype = {
                                   SEStateHelper.getSessionObjById(data.sessionId),
                                   data.sessionId);
         contentObj = this._window.SEChannel._create(this._window, chromeObj);
-        // Update 'channel obj'
+        // Update "channel obj"
         SEStateHelper.addChannelObj(contentObj, data.channelToken);
         resolver.resolve(contentObj);
         break;
