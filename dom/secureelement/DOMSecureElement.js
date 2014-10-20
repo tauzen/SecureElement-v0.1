@@ -271,6 +271,7 @@ SEChannel.prototype = {
       let request = iccProvider.iccCloseChannel(0, this._window, this._channelToken);
       request.onsuccess = () => {
         this.isClosed = true;
+        this.session.removeClosedChannel(this);
         debug("closing channel");
         resolve();
       };
@@ -343,8 +344,26 @@ SESession.prototype = {
     let promises = this._openedChannels.map((channel) => channel.close());
 
     return this._window.Promise.all(promises)
-            .then(() =>  { this.isClosed = true; return this._window.Promise.resolve(); })
-            .catch(() => this._window.Promise.reject());
+            .then(() =>  { 
+              debug("All channels closed");
+              this.isClosed = true; 
+              return this._window.Promise.resolve(); 
+            })
+            .catch(() => { 
+              debug("Failed to close all channels");
+              this._window.Promise.reject();
+            });
+  },
+
+  removeClosedChannel: function(channel) {
+    debug("removing closed channel from session._openedChannels");
+    let idx = this._openedChannels.indexOf(channel);
+    if (idx === -1) {
+      debug("channel not in openedChannels array");
+      return;
+    }
+
+    this._openedChannels.splice(idx, 1);
   }
 };
 
