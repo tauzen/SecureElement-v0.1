@@ -81,16 +81,15 @@ PromiseHelpersSubclass.prototype = {
   __proto__: DOMRequestIpcHelper.prototype,
 
   _createPromise: function(aCallback) {
-    let self = this;
-    return this.createPromise(function(aResolve, aReject) {
-      let resolverId = self.getPromiseResolverId({
+    return this.createPromise((aResolve, aReject) => {
+      let resolverId = this.getPromiseResolverId({
         resolve: aResolve,
         reject: aReject
       });
       // TBD: On some condition, say
       if (false) {
-        self.removePromiseResolver(resolverId);
-        reject('SEManager is not active.');
+        this.removePromiseResolver(resolverId);
+        aReject('SEManager is not active.');
         return;
       }
       aCallback(resolverId);
@@ -189,7 +188,7 @@ SEChannel.prototype = {
     // Len: 266 ==> 256 (Max data PDU) + 10 bytes (for above mentioned headers)
     let maxLen = 10; //command.data? 10 : 266;
     let array = new Uint8Array(maxLen);
-    let self = this;
+
     if (this.isClosed) {
       throw new Error("Channel Already Closed!");
     }    
@@ -207,14 +206,14 @@ SEChannel.prototype = {
     // Clone data object using structured clone algorithm.
     //let apdu = Cu.cloneInto(array, this._window);
    
-    return PromiseHelpers._createPromise(function(aResolverId) {
+    return PromiseHelpers._createPromise((aResolverId) => {
       cpmm.sendAsyncMessage("SE:TransmitAPDU", {
         resolverId: aResolverId,
         apdu: array,
-        channelToken: self._channelToken,
-        aid: self._aid,
-        sessionId: self._sessionId,
-        appId: self._window.document.nodePrincipal.appId
+        channelToken: this._channelToken,
+        aid: this._aid,
+        sessionId: this._sessionId,
+        appId: this._window.document.nodePrincipal.appId
       });
     });
   },
@@ -223,14 +222,15 @@ SEChannel.prototype = {
     if (this.isClosed) {
       throw new Error("Session Already Closed!");
     }
-    return PromiseHelpers._createPromise(function(aResolverId) {
+
+    this.isClosed = true;
+    return PromiseHelpers._createPromise((aResolverId) => {
       cpmm.sendAsyncMessage("SE:CloseChannel", {
         resolverId: aResolverId,
-        aid: this_aid,
-        channelToken: this_channelToken
+        aid: this._aid,
+        channelToken: this._channelToken
       });
     });
-    this.isClosed = true;
   }
 };
 
@@ -266,7 +266,6 @@ SESession.prototype = {
     if (aid) {
       this.aid = Cu.cloneInto(aid, this._window);
     }
-    let self = this;
 
    // Uncomment following code if you need to test latest QCOM build. Below code snippet
    // only serves as a proof of concept
@@ -318,24 +317,24 @@ SESession.prototype = {
 */
     
 
-    return PromiseHelpers._createPromise(function(aResolverId) {
+    return PromiseHelpers._createPromise((aResolverId) => {
       cpmm.sendAsyncMessage("SE:OpenChannel", {
         resolverId: aResolverId,
         aid: aid,
-        sessionId: self._sessionId,
-        type: self.reader.type,
-        appId: self._window.document.nodePrincipal.appId
+        sessionId: this._sessionId,
+        type: this.reader.type,
+        appId: this._window.document.nodePrincipal.appId
       });
     });
   },
 
   closeAll: function() {
-    return PromiseHelpers._createPromise(function(aResolverId) {
+    this.isClosed = true;
+    return PromiseHelpers._createPromise((aResolverId) => {
       cpmm.sendAsyncMessage("SE:CloseAllBySession", {
         resolverId: aResolverId
       });
     });
-    this.isClosed = true;
   }
 };
 
@@ -358,18 +357,17 @@ SEReader.prototype = {
   QueryInterface: XPCOMUtils.generateQI([]),
 
   openSession: function() {
-    let self = this;
-    return PromiseHelpers._createPromise(function(aResolverId) {
+    return PromiseHelpers._createPromise((aResolverId) => {
       cpmm.sendAsyncMessage("SE:OpenSession", {
         resolverId: aResolverId,
-        type: self.type,
-        appId: self._window.document.nodePrincipal.appId
+        type: this.type,
+        appId: this._window.document.nodePrincipal.appId
       });
     });
   },
 
   closeAll: function() {
-    return PromiseHelpers._createPromise(function(aResolverId) {
+    return PromiseHelpers._createPromise((aResolverId) => {
       cpmm.sendAsyncMessage("SE:CloseAllByReader", {
         resolverId: aResolverId
       });
@@ -444,11 +442,10 @@ SEManager.prototype = {
 
   getSEReaders: function() {
     this._ensureAccess();
-    let self = this;
-    return PromiseHelpers._createPromise(function(aResolverId) {
+    return PromiseHelpers._createPromise((aResolverId) => {
       cpmm.sendAsyncMessage("SE:GetSEReaders", {
         resolverId: aResolverId,
-        appId: self._window.document.nodePrincipal.appId
+        appId: this._window.document.nodePrincipal.appId
       });
 
     });
