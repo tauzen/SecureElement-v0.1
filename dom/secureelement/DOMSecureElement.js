@@ -239,7 +239,7 @@ SEChannel.prototype = {
       p2: command.p2,
       path: null,
       Lc: 0x02,
-      data: command.data,
+      data: byte2hexString(command.data),
       data2: null
     };
 
