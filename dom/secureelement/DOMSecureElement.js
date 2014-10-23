@@ -50,6 +50,10 @@ function byte2hexString(uint8arr) {
 }
 
 function hexString2byte(str) {
+  if (!str) {
+    return new Uint8Array();
+  }
+
   var a = [];
   for(var i = 0, len = str.length; i < len; i+=2) {
     a.push(parseInt(str.substr(i,2),16));
@@ -231,15 +235,16 @@ SEChannel.prototype = {
     }
     // Clone data object using structured clone algorithm.
     //let apdu = Cu.cloneInto(array, this._window);
-   
+    
+    let dataStr = byte2hexString(command.data); 
     let apdu = {
       cla: command.cla,
       command: command.ins,
       p1: command.p1,
       p2: command.p2,
+      p3: dataStr.length/2,
       path: null,
-      Lc: 0x02,
-      data: byte2hexString(command.data),
+      data: dataStr,
       data2: null
     };
 
