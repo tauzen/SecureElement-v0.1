@@ -230,7 +230,21 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
   },
 
   _unregisterMessageTarget: function(message) {
-    debug("In unregisterMessageTarget");
+    let targets = this.appInfoMap;
+    Object.keys(targets).forEach((appId) => {
+      let targetInfo = targets[appId];
+      if (targetInfo && targetInfo.target === message.target) {
+        // Remove the target from the list of registered targets
+        debug("Unregisterd MessageTarget for AppId : " + appId);
+        this._closeAllChannelsByAppId(targets[appId], function(status) {
+          if (status == FAILURE) {
+            debug("Oops! Too bad, XXX Memory Leak? XXX : Unable to close (all) channel(s) held by the AppId : " + appId);
+          }
+          delete targets[appId];
+        });
+        return;
+      }
+    });
   },
 
   _addSessionToTarget: function(sessionId, msg) {
@@ -247,21 +261,22 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
     return SUCCESS;
   },
 
-  _addChannelToSession: function(channel, token, msg) {
-    let appId = msg.json.appId; 
-    let sessionId = msg.json.sessionId;
-    let aid = msg.json.aid;
-    let type = msg.json.type;
+  _addChannelToSession: function(channel, token, data) {
+    let appId = data.appId;
+    let sessionId = data.sessionId;
+    let aid = data.aid;
+    let type = data.type;
+    let status = FAILURE;
 
     let appInfo = this.appInfoMap[appId];
     if (!appInfo) {
       debug("Unable to add session to the target: " + appId);
-      return FAILURE;
+      return status;
     }
     let session = appInfo.sessions[sessionId];
     if (!session) {
       debug("Unable to get session " + sessionId + " for the target: " + appId);
-      return FAILURE;
+      return status;
     }
 
     for(let i = 0; i < session.channels.length; i++) {
@@ -270,7 +285,7 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
          debug("Channel (or) AID already exists for this session :" + sessionId
                   + " - Channel :" + channel + " " + session.channels.channel
                   + " - AID :" + aid + " " + session.channels.aid);
-        return FAILURE;
+        return status;
       }
     }
 
@@ -278,14 +293,13 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
     if (session.type === type) {
       session.channels[token] = { channel: channel,
                                   aid: aid };
-    }
-    else {
-       debug("Number of Channels : " +  session.channels.length + 
-              " Session Type " + session.type + " vs " + type + " for sessionId: " + sessionId);
-      return FAILURE;
+      status = SUCCESS;
+    } else {
+      debug("Number of Channels : " +  session.channels.length +
+            " Session Type " + session.type + " vs " + type + " for sessionId: " + sessionId);
     }
 
-    return SUCCESS;
+    return status;
   },
 
   _isChannelRegistered: function(channel, msg) {
@@ -305,29 +319,51 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
     return false;
   },
 
-  _getSessionIdByChannel: function(appId, channelToken) {
+  _getAllChannelsByAppId: function(appId) {
     let appInfo = this.appInfoMap[appId];
     if (!appInfo) {
       debug("Unable to add session to the target: " + appId);
       return null;
     }
     let sessions = appInfo.sessions;
-
-    for (let key in sessions) {
-      if (sessions.hasOwnProperty(key)) {
-        let channels = sessions[key].channels;
-        if (channels[channelToken] !== null)
-          return key;
+    let channelNumbers = new Array();
+    Object.keys(sessions).forEach((aKey) => {
+      let channels = sessions[aKey].channels;
+      if (channels !== undefined) {
+        channelNumbers = channelNumbers.concat(this._getChannels(channels));
       }
+    });
+    return (channelNumbers.length > 0) ? channelNumbers : null;
+  },
+
+  _getAllChannelsBySessionId: function(sessionId, appId) {
+    let sessions = this.appInfoMap[appId].sessions[sessionId];
+    if (!sessions) {
+      debug("Unable to get session for the target appId : " + appId + " sessionId: " + sessionId);
+      return null;
     }
-    return null;
+    return this._getChannels(sessions.channels);
+  },
+
+  _getChannels: function(channels) {
+    if (channels == 'undefined' || channels == null)
+      return null;
+
+    let channelNumbers = new Array();
+    Object.keys(channels).forEach((aKey) => {
+      let channelNumber = channels[aKey].channelNumber;
+      if (channelNumber !== undefined) {
+        channelNumbers.push(channelNumber);
+      }
+    });
+    return (channelNumbers.length > 0) ? channelNumbers : null;
   },
 
   _getPDUCommand: function(command) {
     let apduCmd = new Uint8Array(command.length);
     apduCmd[0] = command[0] & 0xff; //cla
     apduCmd[1] = command[1] & 0xff; //ins
-    apduCmd[2] = command[2] & 0xff;  //p1
+    apduCmd[2] = command[2] & 0xff; //p1
     apduCmd[3] = command[3] & 0xff; //p2
     if (apduCmd[4] != 0) {
       apduCmd[4] = command[4] & 0xff; //p3
@@ -352,6 +388,81 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
     }
   },
 
+  _closeAllChannelsByAppId: function(appId, callback) {
+    let status = SUCCESS;
+    let channels = this._getAllChannelsByAppId(appId);
+
+    do {
+      if (channels == null || channels.length == 0)
+        break;
+      for (let channelNumber in channels) {
+        //iccProvider.iccCloseChannel(1, channelNumber, null);
+      }
+    } while(false);
+
+    if (callback)
+      callback(status);
+  },
+
+  _closeAllChannelsBySessionId: function(sessionId, appId, callback) {
+    let status = SUCCESS;
+    let channels = this._getAllChannelsBySessionId(sessionId, appId);
+    do {
+      if (channels == null || channels.length == 0)
+        break;
+      for (let channelNumber in channels) {
+        //iccProvider.iccCloseChannel(1, channelNumber, null);
+      }
+   } while(false);
+
+    if (callback)
+      callback(status);
+  },
+
+  _openChannel: function(data, callback) {
+    let status = SUCCESS;
+    let channelNumber = 1;
+    // 1. Validate the AID with ACE
+    // 2. channelNumber = iccOpenChannel(aid);
+    //let number = iccProvider.iccOpenChannel(1,
+    let token = UUIDGenerator.generateUUID().toString();
+    // TBD: don't rely on cardstate yet
+    if (((this.cardState === CARDSTATE_READY) || true) && (data.type === 'uicc')) {
+      status |= this._addChannelToSession(channelNumber, token, data);
+    }
+
+    if (callback)
+      callback(status, token);
+  },
+
+  _closeChannel: function(data, callback) {
+    let status = FAILURE;
+    let token = data.channelToken;
+    let sessionId = data.sessionId;
+    let appId = data.appId;
+    let channelNumber = this.appInfoMap[appId].sessions[sessionId].channels[token].channel
+    if (channelNumber !== undefined) {
+      debug('Channel # to be closed ' + channelNumber);
+      status = SUCCESS;
+      //iccCloseChannel(clientId, channelNumber , null);
+    }
+    if (callback)
+      callback(status);
+  },
+
+  _notifyAllTargetsOnSEStateChange: function(type, isPresent) {
+    let targets = this.appInfoMap;
+    Object.keys(targets).forEach((aKey) => {
+      let targetInfo = targets[aKey];
+      if (targetInfo) {
+        targetInfo.target.sendAsyncMessage("SE:NotifySEStateChange", {
+		                            type: type,
+		                            present: isPresent
+		                            });
+      }
+    });
+  },
+
   /**
    * nsIMessageListener interface methods.
    */
@@ -361,14 +472,14 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
     let status = FAILURE;
     let token = null;
     let sessionId = null;
+    let message = msg;
+    let self = this;
     let promiseStatus;
     if (msg.name == "child-process-shutdown") {
       // By the time we receive child-process-shutdown, the child process has
       // already forgotten its permissions so we need to unregister the target
       // for every permission.
       this._unregisterMessageTarget(msg);
-
-      // TBD: Release the SE Resource! closeAll() just in case if still held?
       return null;
     }
 
@@ -418,24 +529,16 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
                                     });
         break;
       case "SE:OpenChannel":
-        let channelNumber = 1;
-        // 1. Validate the AID with ACE
-        // 2. channelNumber = iccOpenChannel(aid);
-        //let number = iccProvider.iccOpenChannel(1, 
-        token = UUIDGenerator.generateUUID().toString();
-        // TBD: don't rely on cardstate yet
-        if (((this.cardState === CARDSTATE_READY) || true) && (msg.json.type === 'uicc')) {
-	  status = this._addChannelToSession(channelNumber, token, msg);
-        }
-        promiseStatus = (status === SUCCESS) ? "Resolved" : "Rejected";
-        sessionId = this._getSessionIdByChannel(msg.json.appId, token);
-        msg.target.sendAsyncMessage(msg.name+promiseStatus, {
-                                    status: status,
-                                    aid: msg.json.aid,
-                                    channelToken: token,
-                                    sessionId: sessionId,
-                                    resolverId: msg.json.resolverId
-                                    });
+        this._openChannel(msg.json, function(status, token) {
+          promiseStatus = (status === SUCCESS) ? "Resolved" : "Rejected";
+          msg.target.sendAsyncMessage(message.name+promiseStatus, {
+                                      status: status,
+                                      aid: message.json.aid,
+                                      channelToken: token,
+                                      sessionId: message.json.sessionId,
+                                      resolverId: message.json.resolverId
+                                      });
+        });
         break;
       case "SE:TransmitAPDU":
         let okRespApdu = [0x00, 0x01, 0x02, 0x03, 0x90, 0x00];
@@ -453,26 +556,41 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
                                     });
         break;
       case "SE:CloseChannel":
-        token = this.channelTokenMap[msg.json.channelToken];
-        if (token !== 'undefined' || token !== null) {
-         // iccCloseChannel(msg.json.aid);
-         delete this.channelTokenMap[msg.json.channelToken];
-        } else 
-        status = 1;
-      
-        promiseStatus = (status === SUCCESS) ? "Resolved" : "Rejected";
-        msg.target.sendAsyncMessage(msg.name+promiseStatus, {
-                                    status: status,
-                                    aid: msg.json.aid,
-                                    resolverId: msg.json.resolverId
-                                    });
+        this._closeChannel(msg.json, function(status) {
+	  promiseStatus = (status === SUCCESS) ? "Resolved" : "Rejected";
+	  message.target.sendAsyncMessage(message.name+promiseStatus, {
+                                          status: status,
+                                          aid: msg.json.aid,
+                                          resolverId: msg.json.resolverId
+			                  });
+	});
         break;
       case "SE:CloseAllByReader":
+        this._closeAllChannelsByAppId(msg.json.appId, function(status) {
+          promiseStatus = (status === SUCCESS) ? "Resolved" : "Rejected";
+          if (status == FAILURE) {
+            debug("Oops! Too bad, XXX Memory Leak? XXX : Unable to close (all) channel(s) held by the AppId : " + message.json.appId);
+          }
+          let thisReaderSession = self.appInfoMap[message.json.appId].sessions;
+          // clear this session info
+          if (thisReaderSession !== undefined)
+            thisReaderSession = {};
+          message.target.sendAsyncMessage(message.name+promiseStatus, {
+                                          resolverId: message.json.resolverId
+                                          });
+        });
+        break;
       case "SE:CloseAllBySession":
-        msg.target.sendAsyncMessage(msg.name+"Resolved", {
-                                    status: SUCCESS,
-                                    resolverId: msg.json.resolverId
-                                    });
+        this._closeAllChannelsBySessionId(msg.json.sessionId, msg.json.appId, function(status) {
+          promiseStatus = (status === SUCCESS) ? "Resolved" : "Rejected";
+          let thisSession = self.appInfoMap[message.json.appId].sessions[message.json.sessionId];
+          // clear this session info
+          if (thisSession !== undefined && thisSession.type === message.json.type)
+            thisSession = {};
+          message.target.sendAsyncMessage(message.name+promiseStatus, {
+                                      resolverId: message.json.resolverId
+                                      });
+        });
         break;
       default:
         throw new Error("Don't know about this message: " + msg.name);
@@ -504,8 +622,17 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
      // For now, use client 1. Ideally, we would like to know which clients (uicc slot)
      // is connected to CLF over SWP interface.
      let clientId = 1;
+     // Consider following Card states as not quite ready for issuing IccChannel* related commands
+     let notReadyStates = [
+       "unknown",
+       "illegal",
+       "personalizationInProgress",
+       "permanentBlocked"
+     ];
      this.cardState = iccProvider.getCardState(clientId);
-     debug("CardStateChanged: " + this.cardState);
+     let present = ((this.cardState !== null) && (notReadyStates.indexOf(this.cardState) > -1)) ? true : false;
+     this._notifyAllTargetsOnSEStateChange("uicc", present);
+     debug("CardStateChanged: " + this.cardState + "present : " + present);
    },
 
    notifyIccInfoChanged: function() {}

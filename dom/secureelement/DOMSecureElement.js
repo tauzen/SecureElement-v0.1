@@ -228,7 +228,9 @@ SEChannel.prototype = {
       cpmm.sendAsyncMessage("SE:CloseChannel", {
         resolverId: aResolverId,
         aid: this._aid,
-        channelToken: this._channelToken
+        channelToken: this._channelToken,
+        sessionId: this._sessionId,
+        appId: this._window.document.nodePrincipal.appId
       });
     });
   }
@@ -332,7 +334,9 @@ SESession.prototype = {
     this.isClosed = true;
     return PromiseHelpers._createPromise((aResolverId) => {
       cpmm.sendAsyncMessage("SE:CloseAllBySession", {
-        resolverId: aResolverId
+        resolverId: aResolverId,
+        sessionId: this._sessionId,
+        appId: this._window.document.nodePrincipal.appId
       });
     });
   }
@@ -347,6 +351,7 @@ SESession.prototype = {
 function SEReader(win, aType) {
   this._window = win;
   this.type    = aType;
+  this.isSEPresent = true;
 }
 
 SEReader.prototype = {
@@ -369,7 +374,9 @@ SEReader.prototype = {
   closeAll: function() {
     return PromiseHelpers._createPromise((aResolverId) => {
       cpmm.sendAsyncMessage("SE:CloseAllByReader", {
-        resolverId: aResolverId
+        resolverId: aResolverId,
+        type: this.type,
+        appId: this._window.document.nodePrincipal.appId
       });
     });
   }
@@ -423,7 +430,8 @@ SEManager.prototype = {
                       "SE:CloseChannelRejected",
                       "SE:TransmitAPDURejected",
                       "SE:CloseAllByReaderRejected",
-                      "SE:CloseAllBySessionRejected"];
+                      "SE:CloseAllBySessionRejected",
+                      "SE:NotifySEStateChange"];
 
     this.initDOMRequestHelper(win, messages);
   },
@@ -501,8 +509,21 @@ SEManager.prototype = {
         resolver.resolve(contentObj);
         break;
       case "SE:CloseAllByReaderResolved":
+        // Clear the state SEStateHelper obj
+        SEStateHelper._readerObjs  = {};
+        SEStateHelper._sessionObjs = {};
+        SEStateHelper._channelObjs = {};
+        resolver.resolve();
+        break;
       case "SE:CloseAllBySessionResolved":
+        // Clear the state in SEStateHelper obj
+        SEStateHelper._sessionObjs = {};
+        SEStateHelper._channelObjs = {};
+        resolver.resolve();
+        break;
       case "SE:CloseChannelResolved":
+        // Clear the state in SEStateHelper obj
+        SEStateHelper._channelObjs = {};
         resolver.resolve();
         break;
       case "SE:GetSEReadersRejected":
@@ -516,6 +537,11 @@ SEManager.prototype = {
       case "SE:CloseAllBySessionRejected":
         debug("TBD: Handle Rejected scenarios " + aMessage.name);
         resolver.reject();
+        break;
+      case "SE:NotifySEStateChange":
+        let reader = SEStateHelper.getReaderObjByType(data.type);
+        if (reader)
+          reader.isSEPresent = data.isPresent;
         break;
       default:
         debug("Could not find a handler for " + aMessage.name);
