@@ -36,39 +36,129 @@ const SE_TYPE_ESE  = 0x01;
  * Helper object to get / set 'SEReader' & 'SEChannel' objects
  */
 let SEStateHelper = {
-  _readerObjs: null,
-  
-  _sessionObjs: {},
 
-  _channelObjs: {},
+  /*
+     ------------------------------
+       Structure of 'stateInfoMap':
+     ------------------------------
+     { ['uicc' :
+                 reader : readerObj1
+                 sessions :
+                           { [xxxxx : // 'session' 1 (key)
+                                     channels : { [aaaaa: // 'token' 1 (key)
+                                                           channelObj 1 ]
+                                                  [bbbbb: // 'token' 2 (key)
+                                                           channelObj 2 ]
+                                                }
+                             ]
+                             [yyyyy : // 'session' 2 (key)
+                                     channels : { [aaaaa: // 'token' 3 (key)
+                                                           channelObj 3 ]
+                                                  [bbbbb: // 'token' 4 (key)
+                                                           channelObj 4 ]
+                                                }
+                             ]
+                          } // End of 'sessions'
+       ]
+       [ 'eSE' :
+                 reader : readerObj2
+                 sessions :
+                              { [..... : ..]
+                                [..... : ..]
+                              }
+       ]
+     }
+  */
+
+  _stateInfoMap: {},
 
   addReaderObjs(readerObjs) {
-    this._readerObjs = readerObjs;
+    for (let index = 0; index < readerObjs.length; readerObjs++) {
+      let aReaderObj = readerObjs[index];
+      let sessionObj = { reader: aReaderObj,
+                         sessions: {} };
+      this._stateInfoMap[aReaderObj.type] = sessionObj;
+    }
   },
  
   getReaderObjByType(type) {
-    if (type == 'uicc')
-      return this._readerObjs[SE_TYPE_SIM];
-    else if (type === 'eSE')
-      return this._readerObjs[SE_TYPE_ESE];
-
-    return null;
+    return this._stateInfoMap[type].reader;
   },
 
-  addSessionObj(sessionObj, sessionId) {
-    this._sessionObjs[sessionId] = sessionObj;
+  deleteReaderObjByType(type) {
+    let sessions = this._stateInfoMap[type].sessions;
+    Object.keys(sessions).forEach((sessionId) => {
+      if (sessions[sessionId] !== undefined)
+        delete this.deleteSessionObjById(sessionId);
+    });
+  },
+
+  addSessionObj(sessionObj, sessionId, type) {
+    this._stateInfoMap[type].sessions[sessionId] = { session: sessionObj,
+                                                     channels: {} };
+    sessionObj.isClosed = false;
   },
 
   getSessionObjById(sessionId) {
-    return this._sessionObjs[sessionId];
+    let sessionObj = null;
+    Object.keys(this._stateInfoMap).forEach((aType) => {
+      let sessions = this._stateInfoMap[aType].sessions;
+      if (sessions[sessionId] !== undefined)
+        sessionObj = sessions[sessionId].session;
+       return;
+    });
+    return sessionObj;
   },
 
-  addChannelObj(channelObj, channelToken) {
-    this._channelObjs[channelToken] = channelObj;
+  deleteSessionObjById(sessionId) {
+    Object.keys(this._stateInfoMap).forEach((aType) => {
+      let sessions = this._stateInfoMap[aType].sessions;
+      if (sessions[sessionId] !== undefined) {
+        let channels = sessions[sessionId].channels;
+        Object.keys(channels).forEach((aToken) => {
+          this.deleteChannelObjByToken(sessionId, aToken);
+        });
+        // TBD: Check if there is a race condition here!
+        sessions[sessionId].session.isClosed = true;
+        delete sessions[sessionId].session;
+      }
+    });
+  },
+
+  addChannelObj(channelObj, sessionId, channelToken) {
+    Object.keys(this._stateInfoMap).forEach((aType) => {
+      let sessions = this._stateInfoMap[aType].sessions;
+      if (sessions[sessionId] !== undefined) {
+        sessions[sessionId].channels[channelToken] = channelObj;
+        channelObj.isClosed = false;
+      }
+    });
   },
 
   getChannelObjByToken(channelToken) {
-    return this._channelObjs[channelToken];
+    let channelObj = null;
+    Object.keys(this._stateInfoMap).forEach((aType) => {
+      let sessions = this._stateInfoMap[aType].sessions;
+      Object.keys(sessions).forEach((sessionId) =>  {
+        let channels = sessions[sessionId].channels;
+        if (channels[channelToken] !== undefined) {
+          channelObj = channels[channelToken];
+          return;
+        }
+      });
+    });
+    return channelObj;
+  },
+
+  deleteChannelObjByToken(sessionId, channelToken) {
+    Object.keys(this._stateInfoMap).forEach((aType) => {
+      let sessions = this._stateInfoMap[aType].sessions;
+      if (sessions[sessionId] !== undefined &&
+          sessions[sessionId].channels[channelToken] !== undefined) {
+        sessions[sessionId].channels[channelToken].isClosed = true;
+        delete sessions[sessionId].channels[channelToken];
+      }
+    });
   }
 };
 
@@ -137,6 +227,8 @@ function SEResponse(win, respApdu, channelObj) {
   this.data = null;
   this.status = 0;
   this.channel = channelObj;
+    debug('channelObj ' + channelObj + ' isClosed :' + channelObj.isClosed);
+  debug('this.channel ' + this.channel + ' isClosed :' + this.channel.isClosed);
   if (respApdu.length < 2) {
     debug('Response APDU : Invalid length ' + respApdu.length);
     return;
@@ -180,7 +272,7 @@ SEChannel.prototype = {
     let index = 0;
     
     //debug("In transmit len: " + command.length);
-    // TBD: Verify the sacntity of 'pdu'
+    // TBD: Verify the sanctity of 'pdu'
     if (command == null) {
       throw new Error("Invalid APDU");
     }
@@ -486,7 +578,7 @@ SEManager.prototype = {
         chromeObj = new SESession(this._window, SEStateHelper.getReaderObjByType(data.type), data.sessionId);
         contentObj = this._window.SESession._create(this._window, chromeObj);
         // Update the session obj
-        SEStateHelper.addSessionObj(contentObj, data.sessionId);
+        SEStateHelper.addSessionObj(contentObj, data.sessionId, data.type);
         resolver.resolve(contentObj);
         break;
       case "SE:OpenChannelResolved":
@@ -497,33 +589,31 @@ SEManager.prototype = {
                                   data.sessionId);
         contentObj = this._window.SEChannel._create(this._window, chromeObj);
         // Update 'channel obj'
-        SEStateHelper.addChannelObj(contentObj, data.channelToken);
+        SEStateHelper.addChannelObj(contentObj, data.sessionId, data.channelToken);
         resolver.resolve(contentObj);
         break;
       case "SE:TransmitAPDUResolved":
         let respApdu = data.respApdu;
+        let channel = SEStateHelper.getChannelObjByToken(data.channelToken);
         chromeObj = new SEResponse(this._window,
                                    respApdu,
-                                   SEStateHelper.getChannelObjByToken(data.channelToken));
+                                   channel);
         contentObj = this._window.SEResponse._create(this._window, chromeObj);
         resolver.resolve(contentObj);
         break;
       case "SE:CloseAllByReaderResolved":
-        // Clear the state SEStateHelper obj
-        SEStateHelper._readerObjs  = {};
-        SEStateHelper._sessionObjs = {};
-        SEStateHelper._channelObjs = {};
+        // Clear the state in SEStateHelper obj
+        SEStateHelper.deleteReaderObjByType(data.type);
         resolver.resolve();
         break;
       case "SE:CloseAllBySessionResolved":
         // Clear the state in SEStateHelper obj
-        SEStateHelper._sessionObjs = {};
-        SEStateHelper._channelObjs = {};
+        SEStateHelper.deleteSessionObjById(data.sessionId);
         resolver.resolve();
         break;
       case "SE:CloseChannelResolved":
         // Clear the state in SEStateHelper obj
-        SEStateHelper._channelObjs = {};
+        SEStateHelper.deleteChannelObjByToken(data.sessionId, data.channelToken);
         resolver.resolve();
         break;
       case "SE:GetSEReadersRejected":

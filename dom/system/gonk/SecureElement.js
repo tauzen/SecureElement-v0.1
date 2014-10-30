@@ -116,7 +116,7 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
      ------------------------------
        Structure of 'appInfoMap':
      ------------------------------
-     { [appId :// appId 1 (key)
+     { [ appId :// appId 1 (key)
                msg.target :
                sessions : { [11111 : // sessionId 1 (key)
                                     type :
@@ -225,7 +225,7 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
       let newAppInfo = { target: message.target,
                          sessions: {} };
       appInfoMap[appId] = newAppInfo;
-       debug("Registering a new target " + appId);
+      debug("Registering a new target " + appId);
     }
   },
 
@@ -559,11 +559,25 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
         this._closeChannel(msg.json, function(status) {
 	  promiseStatus = (status === SUCCESS) ? "Resolved" : "Rejected";
 	  message.target.sendAsyncMessage(message.name+promiseStatus, {
-                                          status: status,
                                           aid: msg.json.aid,
+                                          channelToken: token,
+                                          sessionId: message.json.sessionId,
                                           resolverId: msg.json.resolverId
 			                  });
 	});
+        break;
+      case "SE:CloseAllBySession":
+        this._closeAllChannelsBySessionId(msg.json.sessionId, msg.json.appId, function(status) {
+          promiseStatus = (status === SUCCESS) ? "Resolved" : "Rejected";
+          let thisSession = self.appInfoMap[message.json.appId].sessions[message.json.sessionId];
+          // clear this session info
+          if (thisSession !== undefined && thisSession.type === message.json.type)
+            thisSession = {};
+          message.target.sendAsyncMessage(message.name+promiseStatus, {
+                                          sessionId: message.json.sessionId,
+                                          resolverId: message.json.resolverId
+                                         });
+        });
         break;
       case "SE:CloseAllByReader":
         this._closeAllChannelsByAppId(msg.json.appId, function(status) {
@@ -576,20 +590,9 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
           if (thisReaderSession !== undefined)
             thisReaderSession = {};
           message.target.sendAsyncMessage(message.name+promiseStatus, {
+                                          type: msg.json.type,
                                           resolverId: message.json.resolverId
                                           });
-        });
-        break;
-      case "SE:CloseAllBySession":
-        this._closeAllChannelsBySessionId(msg.json.sessionId, msg.json.appId, function(status) {
-          promiseStatus = (status === SUCCESS) ? "Resolved" : "Rejected";
-          let thisSession = self.appInfoMap[message.json.appId].sessions[message.json.sessionId];
-          // clear this session info
-          if (thisSession !== undefined && thisSession.type === message.json.type)
-            thisSession = {};
-          message.target.sendAsyncMessage(message.name+promiseStatus, {
-                                      resolverId: message.json.resolverId
-                                      });
         });
         break;
       default:
