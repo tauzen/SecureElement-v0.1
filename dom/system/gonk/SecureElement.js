@@ -160,7 +160,7 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
   */
   appInfoMap: {},
 
-  ready: false,
+  cardReady: true,
 
   cardState: null,
 
@@ -254,11 +254,10 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
     let appInfo = this.appInfoMap[appId];
     if (!appInfo) {
       debug("Unable to add session to the target: " + appId);
-      return FAILURE;
+      return;
     }
     appInfo.sessions[sessionId] = { type: type,
                                     channels: {} };
-    return SUCCESS;
   },
 
   _addChannelToSession: function(channel, token, data) {
@@ -473,8 +472,10 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
     let token = null;
     let sessionId = null;
     let message = msg;
+    let promiseStatus = "Rejected";
+    let options = { status : status,
+                    resolverId: msg.json.resolverId };
     let self = this;
-    let promiseStatus;
     if (msg.name == "child-process-shutdown") {
       // By the time we receive child-process-shutdown, the child process has
       // already forgotten its permissions so we need to unregister the target
@@ -492,113 +493,102 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
         return null;
       }
     } else {
-       debug("Ignoring unknown message type: " + msg.name);
+      debug("Ignoring unknown message type: " + msg.name);
       return null;
     }
+    // This is temp. hack! since we are not getting correct states!
+    this.cardReady = true;
 
     switch (msg.name) {
       case "SE:GetSEReaders":
         let secureelements = [];
-        // TBD: don't rely on cardstate yet
-        if (this.cardState === CARDSTATE_READY || true) {
+        if (this.cardReady) {
+          this._registerMessageTarget(msg);
 	  secureelements.push('uicc');
+          options = { secureelements: secureelements,
+                      resolverId: msg.json.resolverId };
+          promiseStatus = "Resolved";
         }
-        if (secureelements.length == 0) {
-	  debug("No active SecureElements present");
-        } else {
-	  this._registerMessageTarget(msg);
-        }
-        promiseStatus = (secureelements.length > 0) ? "Resolved" : "Rejected";
-        msg.target.sendAsyncMessage(msg.name+promiseStatus, {
-                                    secureelements: secureelements,
-                                    resolverId: msg.json.resolverId
-                                    });
         break;
       case "SE:OpenSession":
-        let clientId = 1;
-        // TBD: don't rely on cardstate yet
-        if (((this.cardState === CARDSTATE_READY) || true) && (msg.json.type === 'uicc')) { 
+        if ((this.cardReady) && (msg.json.type === 'uicc')) { 
 	  sessionId = UUIDGenerator.generateUUID().toString();
-	  status = this._addSessionToTarget(sessionId, msg);
+	  this._addSessionToTarget(sessionId, msg);
+          options = { sessionId: sessionId,
+                      type: msg.json.type,
+                      resolverId: msg.json.resolverId };
+          promiseStatus = "Resolved";
         }
-        promiseStatus = (status === SUCCESS) ? "Resolved" : "Rejected";
-        msg.target.sendAsyncMessage(msg.name+promiseStatus, {
-                                    sessionId: sessionId,
-                                    type: msg.json.type,
-                                    resolverId: msg.json.resolverId
-                                    });
         break;
       case "SE:OpenChannel":
         this._openChannel(msg.json, function(status, token) {
-          promiseStatus = (status === SUCCESS) ? "Resolved" : "Rejected";
-          msg.target.sendAsyncMessage(message.name+promiseStatus, {
-                                      status: status,
-                                      aid: message.json.aid,
-                                      channelToken: token,
-                                      sessionId: message.json.sessionId,
-                                      resolverId: message.json.resolverId
-                                      });
+          if (status === SUCCESS) {
+            options = { aid: message.json.aid,
+                        channelToken: token,
+                        sessionId: message.json.sessionId,
+                        resolverId: message.json.resolverId
+                      };
+            promiseStatus = "Resolved";
+          }
         });
         break;
       case "SE:TransmitAPDU":
         let okRespApdu = [0x00, 0x01, 0x02, 0x03, 0x90, 0x00];
-      
         let command = msg.json.apdu;
-        let apduCmd = this._getPDUCommand(command);
         let channel = this._getChannelNumber(command[0]);
-
-        promiseStatus = (true === this._isChannelRegistered(channel, msg)) ? "Resolved" : "Rejected";
-        msg.target.sendAsyncMessage(msg.name+promiseStatus, {
-                                    status: status,
-                                    resolverId: msg.json.resolverId,
-                                    channelToken: msg.json.channelToken,
-                                    respApdu: okRespApdu
-                                    });
+        if (this._isChannelRegistered(channel, msg)) {
+          let apduCmd = this._getPDUCommand(command);
+          options = { channelToken: msg.json.channelToken,
+                      respApdu: okRespApdu,
+                      resolverId: msg.json.resolverId
+                    };
+          promiseStatus = "Resolved";
+        }
         break;
       case "SE:CloseChannel":
         this._closeChannel(msg.json, function(status) {
-	  promiseStatus = (status === SUCCESS) ? "Resolved" : "Rejected";
-	  message.target.sendAsyncMessage(message.name+promiseStatus, {
-                                          aid: msg.json.aid,
-                                          channelToken: token,
-                                          sessionId: message.json.sessionId,
-                                          resolverId: msg.json.resolverId
-			                  });
+          if (status === SUCCESS) {
+            options = { aid: msg.json.aid,
+                        channelToken: token,
+                        sessionId: message.json.sessionId,
+                        resolverId: msg.json.resolverId
+                      };
+            promiseStatus = "Resolved";
+          }
 	});
         break;
       case "SE:CloseAllBySession":
         this._closeAllChannelsBySessionId(msg.json.sessionId, msg.json.appId, function(status) {
-          promiseStatus = (status === SUCCESS) ? "Resolved" : "Rejected";
-          let thisSession = self.appInfoMap[message.json.appId].sessions[message.json.sessionId];
-          // clear this session info
-          if (thisSession !== undefined && thisSession.type === message.json.type)
-            thisSession = {};
-          message.target.sendAsyncMessage(message.name+promiseStatus, {
-                                          sessionId: message.json.sessionId,
-                                          resolverId: message.json.resolverId
-                                         });
+          if (status === SUCCESS) {
+            let thisSession = self.appInfoMap[message.json.appId].sessions[message.json.sessionId];
+            // clear this session info
+            if (thisSession !== undefined && thisSession.type === message.json.type)
+              thisSession = {};
+            options = { sessionId: message.json.sessionId,
+                        resolverId: message.json.resolverId };
+            promiseStatus = "Resolved";
+          }
         });
         break;
       case "SE:CloseAllByReader":
         this._closeAllChannelsByAppId(msg.json.appId, function(status) {
-          promiseStatus = (status === SUCCESS) ? "Resolved" : "Rejected";
-          if (status == FAILURE) {
-            debug("Oops! Too bad, XXX Memory Leak? XXX : Unable to close (all) channel(s) held by the AppId : " + message.json.appId);
+          if (status === SUCCESS) {
+            let thisReaderSession = self.appInfoMap[message.json.appId].sessions;
+            // clear this session info
+            if (thisReaderSession !== undefined)
+              thisReaderSession = {};
+            options = { type: msg.json.type,
+                        resolverId: message.json.resolverId };
+            promiseStatus = "Resolved";
           }
-          let thisReaderSession = self.appInfoMap[message.json.appId].sessions;
-          // clear this session info
-          if (thisReaderSession !== undefined)
-            thisReaderSession = {};
-          message.target.sendAsyncMessage(message.name+promiseStatus, {
-                                          type: msg.json.type,
-                                          resolverId: message.json.resolverId
-                                          });
         });
         break;
       default:
         throw new Error("Don't know about this message: " + msg.name);
-        break;
+        return;
     }
+
+    msg.target.sendAsyncMessage(msg.name+promiseStatus, options);
   },
 
   /**
@@ -633,9 +623,9 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
        "permanentBlocked"
      ];
      this.cardState = iccProvider.getCardState(clientId);
-     let present = ((this.cardState !== null) && (notReadyStates.indexOf(this.cardState) > -1)) ? true : false;
-     this._notifyAllTargetsOnSEStateChange("uicc", present);
-     debug("CardStateChanged: " + this.cardState + "present : " + present);
+     this.cardReady = ((this.cardState !== null) && (notReadyStates.indexOf(this.cardState) > -1)) ? true : false;
+     this._notifyAllTargetsOnSEStateChange("uicc", this.cardReady);
+     debug("CardStateChanged: " + this.cardState + "CardReady : " + this.cardReady);
    },
 
    notifyIccInfoChanged: function() {}

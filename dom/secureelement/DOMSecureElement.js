@@ -33,7 +33,7 @@ const SE_TYPE_SIM = 0x00;
 const SE_TYPE_ESE  = 0x01;
 
 /*
- * Helper object to get / set 'SEReader' & 'SEChannel' objects
+ * Helper object that maintains sessionObj and its corresponding channelObj for a given SE type
  */
 let SEStateHelper = {
 
@@ -96,7 +96,6 @@ let SEStateHelper = {
   addSessionObj(sessionObj, sessionId, type) {
     this._stateInfoMap[type].sessions[sessionId] = { session: sessionObj,
                                                      channels: {} };
-    sessionObj.isClosed = false;
   },
 
   getSessionObjById(sessionId) {
@@ -130,7 +129,6 @@ let SEStateHelper = {
       let sessions = this._stateInfoMap[aType].sessions;
       if (sessions[sessionId] !== undefined) {
         sessions[sessionId].channels[channelToken] = channelObj;
-        channelObj.isClosed = false;
       }
     });
   },
@@ -227,8 +225,6 @@ function SEResponse(win, respApdu, channelObj) {
   this.data = null;
   this.status = 0;
   this.channel = channelObj;
-    debug('channelObj ' + channelObj + ' isClosed :' + channelObj.isClosed);
-  debug('this.channel ' + this.channel + ' isClosed :' + this.channel.isClosed);
   if (respApdu.length < 2) {
     debug('Response APDU : Invalid length ' + respApdu.length);
     return;
@@ -423,7 +419,6 @@ SESession.prototype = {
   },
 
   closeAll: function() {
-    this.isClosed = true;
     return PromiseHelpers._createPromise((aResolverId) => {
       cpmm.sendAsyncMessage("SE:CloseAllBySession", {
         resolverId: aResolverId,
