@@ -17,10 +17,51 @@ interface nsIIccListener : nsISupports
   void notifyIccInfoChanged();
 };
 
+[scriptable, uuid(1a649dd0-6a57-491d-b425-ceecea56e376)]
+interface nsIIccChannelCallback : nsISupports
+{
+  /**
+   * Callback function to notify on successfully opening a logical channel.
+   *
+   * @param channel
+   *        The Channel Number/Handle that is successfully opened.
+   */
+  void notifyOpenChannelSuccess(in long channel);
+
+  /**
+   * Callback function to notify on successfully closing the logical channel.
+   *
+   */
+  void notifyCloseChannelSuccess();
+
+  /**
+   * Callback function to notify the status of 'iccExchangeAPDU' command.
+   *
+   * @param sw1
+   *        Response's First Status Byte
+   * @param sw2
+   *        Response's Second Status Byte
+   * @param length
+   *        Length of response's data field
+   * @param data
+   *        Response's data field bytes
+   */
+  void notifyExchangeAPDUResponse(in octet sw1,
+                                  in octet sw2,
+                                  in unsigned long length,
+                                  [array, size_is(length)] in octet data);
+
+  /**
+   * Callback function to notify error
+   *
+   */
+  void notifyError(in DOMString error);
+};
+
 /**
  * XPCOM component (in the content process) that provides the ICC information.
  */
-[scriptable, uuid(7c67ab92-52a3-4e11-995c-c0ad2f66c4cb)]
+[scriptable, uuid(7a93578d-b389-4bec-9ea3-5ee4cf048710)]
 interface nsIIccProvider : nsISupports
 {
   /**
@@ -91,18 +132,23 @@ interface nsIIccProvider : nsISupports
   /**
    * Secure Card Icc communication channel
    */
-  nsIDOMDOMRequest iccOpenChannel(in unsigned long clientId,
-                                  in nsIDOMWindow window,
-                                  in DOMString aid);
+  void iccOpenChannel(in unsigned long clientId,
+                      in DOMString aid,
+                      in nsIIccChannelCallback callback);
 
-  nsIDOMDOMRequest iccExchangeAPDU(in unsigned long clientId,
-                                   in nsIDOMWindow window,
-                                   in long channel,
-                                   in jsval apdu);
+  void iccExchangeAPDU(in unsigned long clientId,
+                       in long channel,
+                       in octet cla,
+                       in octet ins,
+                       in octet p1,
+                       in octet p2,
+                       in unsigned long lc,
+                       [array, size_is(lc)] in octet data,
+                       in nsIIccChannelCallback callback);
 
-  nsIDOMDOMRequest iccCloseChannel(in unsigned long clientId,
-                                   in nsIDOMWindow window,
-                                   in long channel);
+  void iccCloseChannel(in unsigned long clientId,
+                       in long channel,
+                       in nsIIccChannelCallback callback);
 
   /**
    * Helpers

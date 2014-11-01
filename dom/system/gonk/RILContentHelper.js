@@ -119,6 +119,10 @@ XPCOMUtils.defineLazyServiceGetter(this, "cpmm",
                                    "@mozilla.org/childprocessmessagemanager;1",
                                    "nsISyncMessageSender");
 
+XPCOMUtils.defineLazyServiceGetter(this, "UUIDGenerator",
+                  "@mozilla.org/uuid-generator;1",
+                  "nsIUUIDGenerator");
+
 XPCOMUtils.defineLazyGetter(this, "gNumRadioInterfaces", function() {
   let appInfo = Cc["@mozilla.org/xre/app-info;1"];
   let isParentProcess = !appInfo || appInfo.getService(Ci.nsIXULRuntime)
@@ -456,6 +460,7 @@ function RILContentHelper() {
   this._cellBroadcastListeners = [];
   this._voicemailListeners = [];
   this._iccListeners = [];
+  this._iccChannelCallback = [];
 
   Services.obs.addObserver(this, NS_XPCOM_SHUTDOWN_OBSERVER_ID, false);
 
@@ -1055,14 +1060,9 @@ RILContentHelper.prototype = {
     });
   },
 
-  iccOpenChannel: function(clientId, window, aid) {
-    if (window == null) {
-      throw Components.Exception("Can't get window object",
-                                  Cr.NS_ERROR_UNEXPECTED);
-    }
-
-    let request = Services.DOMRequest.createRequest(window);
-    let requestId = this.getRequestId(request);
+  iccOpenChannel: function(clientId, aid, callback) {
+    let requestId = UUIDGenerator.generateUUID().toString();
+    this._addIccChannelCallback(requestId, callback);
 
     cpmm.sendAsyncMessage("RIL:IccOpenChannel", {
       clientId: clientId,
@@ -1071,17 +1071,21 @@ RILContentHelper.prototype = {
         aid: aid
       }
     });
-    return request;
   },
 
-  iccExchangeAPDU: function(clientId, window, channel, apdu) {
-    if (window == null) {
-      throw Components.Exception("Can't get window object",
-                                  Cr.NS_ERROR_UNEXPECTED);
-    }
+  iccExchangeAPDU: function(clientId, channel, cla, ins, p1, p2, lc, data, callback) {
+    let requestId = UUIDGenerator.generateUUID().toString();
+    this._addIccChannelCallback(requestId, callback);
 
-    let request = Services.DOMRequest.createRequest(window);
-    let requestId = this.getRequestId(request);
+    let apduStr = (!data) ? null : this._byte2hexString(data);
+    let apdu = {
+      cla: cla,
+      command: ins,
+      p1: p1,
+      p2: p2,
+      p3: lc,
+      data: apduStr
+    };
 
     //Potentially you need serialization here and can't pass the jsval through
     cpmm.sendAsyncMessage("RIL:IccExchangeAPDU", {
@@ -1092,17 +1096,11 @@ RILContentHelper.prototype = {
         apdu: apdu
       }
     });
-    return request;
   },
 
-  iccCloseChannel: function(clientId, window, channel) {
-    if (window == null) {
-      throw Components.Exception("Can't get window object",
-                                  Cr.NS_ERROR_UNEXPECTED);
-    }
-
-    let request = Services.DOMRequest.createRequest(window);
-    let requestId = this.getRequestId(request);
+  iccCloseChannel: function(clientId, channel, callback) {
+    let requestId = UUIDGenerator.generateUUID().toString();
+    this._addIccChannelCallback(requestId, callback);
 
     cpmm.sendAsyncMessage("RIL:IccCloseChannel", {
       clientId: clientId,
@@ -1111,7 +1109,6 @@ RILContentHelper.prototype = {
         channel: channel
       }
     });
-    return request;
   },
 
   readContacts: function(clientId, window, contactType) {
@@ -1452,6 +1449,7 @@ RILContentHelper.prototype = {
   _cellBroadcastListeners: null,
   _voicemailListeners: null,
   _iccListeners: null,
+  _iccChannelCallback: null,
 
   voicemailInfos: null,
   voicemailStatuses: null,
@@ -1500,6 +1498,7 @@ RILContentHelper.prototype = {
     if (!this[listenerType]) {
       return;
     }
+
     let listeners = this[listenerType][clientId];
     if (!listeners) {
       listeners = this[listenerType][clientId] = [];
@@ -1510,7 +1509,6 @@ RILContentHelper.prototype = {
     }
 
     listeners.push(listener);
-    if (DEBUG) debug("Registered " + listenerType + " listener: " + listener);
   },
 
   unregisterListener: function(listenerType, clientId, listener) {
@@ -1527,6 +1525,20 @@ RILContentHelper.prototype = {
       listeners.splice(index, 1);
       if (DEBUG) debug("Unregistered listener: " + listener);
     }
+  },
+
+  _addIccChannelCallback: function(requestId, channelCb) {
+    let cbInterfaces = this._iccChannelCallback;
+    if (!cbInterfaces[requestId] && channelCb) {
+      cbInterfaces[requestId] = channelCb;
+      return;
+    }
+
+    if (DEBUG) debug("Unable to add channelCbInterface for requestId : " + requestId);
+  },
+
+  _getIccChannelCallback: function(requestId) {
+    return this._iccChannelCallback[requestId];
   },
 
   registerMobileConnectionMsg: function(clientId, listener) {
@@ -1663,6 +1675,32 @@ RILContentHelper.prototype = {
     Services.DOMRequest.fireDetailedError(request, detailedError);
   },
 
+  _hexStringToBytes: function(hexString) {
+    let bytes = [];
+    let length = hexString.length;
+
+    for (let i = 0; i < length; i += 2) {
+      bytes.push(Number.parseInt(hexString.substr(i, 2), 16));
+    }
+
+    return bytes;
+  },
+
+  _byte2hexString: function(array) {
+    let hexString = "";
+    let hex;
+
+    for (let i = 0; i < array.length; i++) {
+      hex = array[i].toString(16).toUpperCase();
+      if (hex.length === 1) {
+        hexString += "0";
+      }
+      hexString += hex;
+    }
+
+    return hexString;
+  },
+
   receiveMessage: function(msg) {
     let request;
     if (DEBUG) {
@@ -1781,11 +1819,10 @@ RILContentHelper.prototype = {
         this._deliverEvent(clientId, "_iccListeners", "notifyStkSessionEnd", null);
         break;
       case "RIL:IccOpenChannel":
-        this.handleSimpleRequest(data.requestId, data.errorMsg,
-                                 data.channel);
+        this.handleIccOpenChannel(data);
         break;
       case "RIL:IccCloseChannel":
-        this.handleSimpleRequest(data.requestId, data.errorMsg, null);
+        this.handleIccCloseChannel(data);
         break;
       case "RIL:IccExchangeAPDU":
         this.handleIccExchangeAPDU(data);
@@ -1928,12 +1965,38 @@ RILContentHelper.prototype = {
     this.fireRequestSuccess(message.requestId, networks);
   },
 
+  handleIccOpenChannel: function(message) {
+    let requestId = message.requestId;
+    let channel   = message.channel;
+
+    let callback = this._getIccChannelCallback(requestId);
+    if (callback) {
+      let notify = (!message.errorMsg) ? callback.notifyOpenChannelSuccess(channel) :
+                                         callback.notifyError(message.errorMsg);
+    }
+  },
+
+  handleIccCloseChannel: function(message) {
+    let requestId = message.requestId;
+    let callback = this._getIccChannelCallback(requestId);
+
+    if (callback) {
+      let notify = (!message.errorMsg) ? callback.notifyCloseChannelSuccess() :
+                                         callback.notifyError(message.errorMsg);
+    }
+  },
+
   handleIccExchangeAPDU: function(message) {
-    if (message.errorMsg) {
-      this.fireRequestError(message.requestId, message.errorMsg);
-    } else {
-      var result = [message.sw1, message.sw2, message.simResponse];
-      this.fireRequestSuccess(message.requestId, result);
+    let requestId = message.requestId;
+    let callback = this._getIccChannelCallback(requestId);
+
+    let responseBytes = (message.simResponse !== null && message.simResponse.length > 0) ?
+                          this._hexStringToBytes(message.simResponse) : null;
+    let responseLength = (responseBytes !== null ) ? responseBytes.length : 0;
+    if (callback) {
+      let notify = (!message.errorMsg) ?
+                     callback.notifyExchangeAPDUResponse(message.sw1, message.sw2, responseLength, responseBytes) :
+                     callback.notifyError(message.errorMsg);
     }
   },
 
