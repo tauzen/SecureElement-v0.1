@@ -77,7 +77,7 @@ interface SESession {
    * @return If the operation is successful the promise is resolved with an instance of SEChannel.
    */
   [Throws]
-  Promise<SEChannel> openLogicalChannel(Uint8Array  aid);
+  Promise<SEChannel> openLogicalChannel(Uint8Array aid);
 
   /**
    * Opens a basic channel to an application on Secure Element. Once the channel has been opened by the application,
@@ -91,11 +91,10 @@ interface SESession {
    * NOTE: Some secure elements may deny opening a basic channel. In such a scenario, promise is resolved with SEIoError.
    */
   [Throws]
-  Promise<SEChannel> openBasicChannel(Uint8Array  aid);
+  Promise<SEChannel> openBasicChannel(Uint8Array aid);
 
   /**
-   * Closes the active communication channel to the application on Secure Element. This will also
-   * close all other active channels associated with this session.
+   * Close all active channels associated with this session.
    *
    */
   [Throws]
@@ -153,7 +152,7 @@ interface SECommand {
   attribute octet                           ins;    // 1 Byte  : Instruction Byte
   attribute octet                           p1;     // 1 Byte  : First Octet of Parameters Byte
   attribute octet                           p2;     // 1 Byte  : Second Octet of Parameters Byte
-  [Cached, Pure] attribute sequence<octet>  data;   // Sequence of octets
+  [Cached, Pure] attribute sequence<octet>?  data;   // Sequence of octets
   attribute short                           le;     // The length of the expected
                                                     // response data or -1 if none is expected
 };
@@ -172,7 +171,7 @@ interface SEResponse {
   readonly attribute octet        sw2;
 
   // The response's data field bytes
-  [Cached, Pure] readonly attribute sequence<octet>  data;
+  [Cached, Pure] readonly attribute sequence<octet>?  data;
 
 };
 

@@ -32,6 +32,9 @@ XPCOMUtils.defineLazyServiceGetter(this, "iccProvider",
 const SE_TYPE_SIM = 0x00;
 const SE_TYPE_ESE  = 0x01;
 
+// According GPCardSpec 2.2.xx
+const SE_MAX_APDU_LEN = 255; // including APDU header
+
 /*
  * Helper object that maintains sessionObj and its corresponding channelObj for a given SE type
  */
@@ -225,16 +228,15 @@ function SEResponse(win, respApdu, channelObj) {
   this.data = null;
   this.status = 0;
   this.channel = channelObj;
-  if (respApdu.length < 2) {
-    debug('Response APDU : Invalid length ' + respApdu.length);
-    return;
+  if (respApdu.simResponse.length <= 0) {
+    debug('Response APDU : Not Present ');
+  } else {
+    this.data = respApdu.simResponse.slice(0, respApdu.length);
   }
 
-  if (respApdu.length > 2) {
-    this.data = respApdu.slice(0, respApdu.length - 2);
-  }
-  this.sw1 = 0x00FF & respApdu[respApdu.length - 2];
-  this.sw2 = 0x00FF & respApdu[respApdu.length - 1];
+  // Anyways update the status bytes
+  this.sw1 = respApdu.sw1;
+  this.sw2 = respApdu.sw2;
   this.status = (this.sw1 << 8) | this.sw2;
 }
 
@@ -265,39 +267,55 @@ SEChannel.prototype = {
   QueryInterface: XPCOMUtils.generateQI([]),
 
   transmit: function(command) {
-    let index = 0;
-    
-    //debug("In transmit len: " + command.length);
-    // TBD: Verify the sanctity of 'pdu'
+
     if (command == null) {
       throw new Error("Invalid APDU");
     }
-    // Len: 10 ==> CLA (1 Byte) + INS (1 Byte) + P1 (1 Byte) + P2 (1 Byte)  + Lc (3 Bytes) + data is null (0 Bytes) + Le (Resp bytes, 3 Bytes) 
-    // Len: 266 ==> 256 (Max data PDU) + 10 bytes (for above mentioned headers)
-    let maxLen = 10; //command.data? 10 : 266;
-    let array = new Uint8Array(maxLen);
 
     if (this.isClosed) {
       throw new Error("Channel Already Closed!");
-    }    
-
-    array[0] = (command.cla);
-    array[1] = (command.ins);
-    array[2] = (command.p1);
-    array[3] = (command.p2); 
-    array[4] = 0x00; // len of data
-  
-
-    if (array.length < 4) {
-      throw new Error("SECommand sanity fails!");
     }
-    // Clone data object using structured clone algorithm.
-    //let apdu = Cu.cloneInto(array, this._window);
-   
+
+    // Check for mandatory headers!
+    if ( command.cla === null || command.ins === null || command.p1 === null || command.p2 === null) {
+      throw new Error("Missing APDU Mandatory headers!");
+    }
+
+    let offset = 0;
+    let apduFieldsLen = 4; // (CLA + INS + P1 + P2)
+    let dataLen = ( !command.data ) ? 0 : command.data.length;
+    if (dataLen > 0) {
+      apduFieldsLen++; // Lc
+    }
+    if (command.le) {
+      apduFieldsLen++; // Le
+    }
+
+    if ((apduFieldsLen + dataLen) > SE_MAX_APDU_LEN) {
+      throw new Error("Data length exceeds max limit - 255. Extended APDU is not supported!");
+    }
+
+    let apduCommand = new Uint8Array(apduFieldsLen + dataLen);
+    apduCommand[offset++] = (command.cla);
+    apduCommand[offset++] = (command.ins);
+    apduCommand[offset++] = (command.p1);
+    apduCommand[offset++] = (command.p2);
+    if (dataLen > 0) {
+      let index = 0;
+      // TBD: Extended APDU support is not supported for now
+      apduCommand[offset++] = dataLen & 0xFF;
+      while(offset < SE_MAX_APDU_LEN && index < (apduFieldsLen + dataLen)) {
+        apduCommand[offset++] = command.data[index++];
+      }
+    }
+    if (command.le) {
+      apduCommand[offset] = (command.le);
+    }
+
     return PromiseHelpers._createPromise((aResolverId) => {
       cpmm.sendAsyncMessage("SE:TransmitAPDU", {
         resolverId: aResolverId,
-        apdu: array,
+        apdu: apduCommand,
         channelToken: this._channelToken,
         aid: this._aid,
         sessionId: this._sessionId,
@@ -354,63 +372,13 @@ SESession.prototype = {
       throw new Error("Session Already Closed!");
     }
     if (aid) {
-      this.aid = Cu.cloneInto(aid, this._window);
+      this._aid = Cu.waiveXrays(aid);
     }
-
-   // Uncomment following code if you need to test latest QCOM build. Below code snippet
-   // only serves as a proof of concept
-
-/*
-    let aidStr = '325041592E5359532E4444463031';
-    let request  = iccProvider.iccOpenChannel(1, this._window , aidStr );
-    request.onsuccess = function onsuccess() {
-       debug("In openLogicalChannel onsuccess 1--- ");
-            // CLA=0x00,  INS=0xa4, P1=0x00, p2=0x04, Lc=0x02, Data=0x5031
-            //var apdu = { cla: 0x00, command: 0xa4, p1: 0x00, p2: 0x04, path: null, Lc: 0x02, data: 0x5031, data2: null};
-
-            // cla:80, INS: D4, p1: 01, p2:00, Lc:00
-            var apdu = { cla: 0x80, command: 0xD4, p1: 0x01, p2: 0x00, path: null, Lc: 0x00, data2: null};
-       	    let request1  = iccProvider.iccExchangeAPDU(1, self._window , 2,  apdu);
-            let _self = self;
-	    request1.onsuccess = function onsuccess() {
-	            debug("In iccExchangeAPDU onsuccess 2");
-
-                    //  CLA=0x00,  INS=0xb0, P1=0x00, p2=0x00, Le=0x00
-                    var apdu1 = { cla: 0x92, command: 0xb0, p1: 0x00, p2: 0x00, path: null };
-	       	    let request2  = iccProvider.iccExchangeAPDU(1, _self._window , 2,  apdu1);
-                    let __self = _self;
-		    request2.onsuccess = function onsuccess() {
-                        debug("In iccExchangeAPDU onsuccess 2.1");
-			let request3  = iccProvider.iccCloseChannel(1, __self._window , 2 );
-			request3.onsuccess = function onsuccess() {
-			  debug("In iccCloseChannel onsuccess 3");
-			};
-			request3.onerror = function onerror() {
-			  debug("In iccCloseChannel onerror 3");
-			};
-		    };
-                    
-		    request2.onerror = function onerror() {
-                        debug("In iccExchangeAPDU onerror 2.1");
-                        
-		    };
-               
-	    };
-	    request1.onerror = function onerror() {
-	      debug("In iccExchangeAPDU onerror 2");
-	    };
-    };
-
-    request.onerror = function onerror() {
-      debug("In openLogicalChannel onerror 1");
-    };
-*/
     
-
     return PromiseHelpers._createPromise((aResolverId) => {
       cpmm.sendAsyncMessage("SE:OpenChannel", {
         resolverId: aResolverId,
-        aid: aid,
+        aid: this._aid,
         sessionId: this._sessionId,
         type: this.reader.type,
         appId: this._window.document.nodePrincipal.appId
