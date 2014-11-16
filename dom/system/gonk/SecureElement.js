@@ -56,7 +56,10 @@ const FAILURE = -1;
 
 const MAX_CHANNELS_ALLOWED_PER_SESSION = 4;
 
-
+// TBD: In the Multi-sim, there is more than one client in iccProvider.
+// For now, use client 0. Ideally, we would like to know which clients (uicc slot)
+// is connected to CLF over SWP interface.
+const CLIENT_ID = 0;
 
 XPCOMUtils.defineLazyServiceGetter(this, "ppmm",
                    "@mozilla.org/parentprocessmessagemanager;1",
@@ -197,14 +200,14 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
 
   _initializeSEListeners: function() {
     // Attach a listener to UICC state changes (clientId: 0)
-    iccProvider.registerIccMsg(1, this);
+    iccProvider.registerIccMsg(CLIENT_ID, this);
 
     // TBD: Initialize eSE listener here
   },
 
   _uninitializeSEListeners: function() {
     // Detach the listener to UICC state changes (clientId: 0)
-    iccProvider.unregisterIccMsg(1, this);
+    iccProvider.unregisterIccMsg(CLIENT_ID, this);
 
     // TBD: Uninitialize eSE listener here
   },
@@ -397,7 +400,6 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
 
   _closeAllChannelsByAppId: function(appId, callback) {
     let status = SUCCESS;
-    let clientId = 1;
     let channels = this._getAllChannelsByAppId(appId);
     let count = 0;
 
@@ -409,7 +411,7 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
 
       for (let channelNumber in channels) {
         debug('Close Channel # - ' + channelNumber);
-        iccProvider.iccCloseChannel(clientId, channelNumber , {
+        iccProvider.iccCloseChannel(CLIENT_ID, channelNumber , {
 	  notifyOpenChannelSuccess: function(channel) {},
 
 	  notifyCloseChannelSuccess: function() {
@@ -449,10 +451,9 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
   },
 
   _openChannel: function(data, callback) {
-    let clientId = 1;
     let status = FAILURE;
     // TBD: Validate the AID 'data.aid' with ACE
-    iccProvider.iccOpenChannel(clientId, this._byte2hexString(data.aid) , {
+    iccProvider.iccOpenChannel(CLIENT_ID, this._byte2hexString(data.aid) , {
       notifyOpenChannelSuccess: function(channel) {
 	let token = UUIDGenerator.generateUUID().toString();
 	if (((this.cardState === CARDSTATE_READY) || true) && (data.type === 'uicc')) {
@@ -471,7 +472,6 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
   },
 
   _transmit: function(msg, apduCmd, callback) {
-    let clientId = 1;
     let channel = this._getChannelNumber(apduCmd[0] & 0xFF);
     debug('transmit on Channel # - ' + channel);
     // TBD: Validate the AID 'data.aid' with ACE
@@ -481,7 +481,7 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
     let p2 = apduCmd[3] & 0xFF;
     let lc = ((apduCmd[4] === 0) || (apduCmd[4] === undefined)) ? 0 : (apduCmd[4] & 0xFF);
     let data = ( lc > 0 ) ? apduCmd.subarray(5) : null;
-    iccProvider.iccExchangeAPDU(clientId, channel , (cla & 0xFC), ins, p1, p2, lc, data, {
+    iccProvider.iccExchangeAPDU(CLIENT_ID, channel , (cla & 0xFC), ins, p1, p2, lc, data, {
       notifyExchangeAPDUResponse: function(sw1, sw2, length, simResponse) {
         callback({ sw1: sw1, sw2: sw2, simResponse: simResponse });
       },
@@ -493,7 +493,6 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
   },
 
   _closeChannel: function(data, callback) {
-    let clientId = 1;
     let token = data.channelToken;
     let sessionId = data.sessionId;
     let appId = data.appId;
@@ -501,7 +500,7 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
 
     if (channelNumber !== undefined) {
       debug('Channel # to be closed ' + channelNumber);
-      iccProvider.iccCloseChannel(clientId, channelNumber , {
+      iccProvider.iccCloseChannel(CLIENT_ID, channelNumber , {
         notifyCloseChannelSuccess: function() {
           if (callback) {
 	    callback({ status: SUCCESS });
@@ -701,10 +700,6 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
    notifyStkSessionEnd: function() {},
 
    notifyCardStateChanged: function() {
-     // TBD: In the Multi-sim, there is more than one client in iccProvider. 
-     // For now, use client 1. Ideally, we would like to know which clients (uicc slot)
-     // is connected to CLF over SWP interface.
-     let clientId = 1;
      // Consider following Card states as not quite ready for issuing IccChannel* related commands
      let notReadyStates = [
        "unknown",
@@ -712,7 +707,7 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
        "personalizationInProgress",
        "permanentBlocked"
      ];
-     this.cardState = iccProvider.getCardState(clientId);
+     this.cardState = iccProvider.getCardState(CLIENT_ID);
      this.cardReady = ((this.cardState !== null) && (notReadyStates.indexOf(this.cardState) == -1)) ? true : false;
      this._notifyAllTargetsOnSEStateChange("uicc", this.cardReady);
      libcutils.property_set('persist.check.se', this.cardReady + ' ' + this.cardState);
