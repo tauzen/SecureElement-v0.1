@@ -471,8 +471,8 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
     });
   },
 
-  _transmit: function(msg, apduCmd, callback) {
-    let channel = this._getChannelNumber(apduCmd[0] & 0xFF);
+  _transmit: function(msg, channel, apduCmd, callback) {
+    //let channel = this._getChannelNumber(apduCmd[0] & 0xFF);
     debug('transmit on Channel # - ' + channel);
     // TBD: Validate the AID 'data.aid' with ACE
     let cla = apduCmd[0] & 0xFF;
@@ -625,8 +625,8 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
       case "SE:TransmitAPDU":
         let command = msg.json.apdu;
         let channel = this._getChannel(msg);
-        command[0] = this._setChannelToClassByte(command[0], channel);
-        this._transmit(msg, command, function(result) {
+        //command[0] = this._setChannelToClassByte(command[0], channel);
+        this._transmit(msg, channel, command, function(result) {
           promiseStatus = (result.sw1 === 144 && result.sw2 === 0) ? "Resolved" : "Resolved";
           options = { channelToken: message.json.channelToken,
                       respApdu: result,
