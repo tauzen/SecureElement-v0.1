@@ -17,8 +17,6 @@
 
 "use strict";
 
-let DEBUG = true;
-
 const {classes: Cc, interfaces: Ci, utils: Cu, results: Cr} = Components;
 
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
@@ -26,6 +24,17 @@ Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource://gre/modules/systemlibs.js");
 Cu.import("resource://gre/modules/Promise.jsm");
 Cu.import("resource://gre/modules/FileUtils.jsm");
+
+XPCOMUtils.defineLazyGetter(this, "SE", function () {
+  let obj = {};
+  Cu.import("resource://gre/modules/se_consts.js", obj);
+  return obj;
+});
+
+// TBD: In the Multi-sim, there are more than one client.
+// For now, use default clientID as 0. Ideally, we would like to know which clients (uicc slot)
+// is connected to CLF over SWP interface.
+const DEFAULT_UICC_CLIENTID = libcutils.property_get("ro.moz.se.def_client_id", "0");
 
 const SE_IPC_SECUREELEMENT_MSG_NAMES = [
   "SE:GetSEReaders",
@@ -37,6 +46,9 @@ const SE_IPC_SECUREELEMENT_MSG_NAMES = [
   "SE:CloseAllBySession"
 ];
 
+// set to true in se_consts.js to see debug messages
+let DEBUG = SE.DEBUG_SE;
+
 function debug(s) {
   if (DEBUG) {
     dump("-*- SecureElement: " + s + "\n");
@@ -47,19 +59,6 @@ const SE_CONTRACTID = "@mozilla.org/se;1";
 const SE_CID =
   Components.ID("{48f4e650-28d2-11e4-8c21-0800200c9a66}");
 const NS_XPCOM_SHUTDOWN_OBSERVER_ID    = "xpcom-shutdown";
-
-// MUST match with cardstates in nsIIccProvider.idl
-const CARDSTATE_READY = 1; // Treat any other state as error
-
-const SUCCESS = 0;
-const FAILURE = -1;
-
-const MAX_CHANNELS_ALLOWED_PER_SESSION = 4;
-
-// TBD: In the Multi-sim, there is more than one client in iccProvider.
-// For now, use client 0. Ideally, we would like to know which clients (uicc slot)
-// is connected to CLF over SWP interface.
-const CLIENT_ID = 0;
 
 XPCOMUtils.defineLazyServiceGetter(this, "ppmm",
                    "@mozilla.org/parentprocessmessagemanager;1",
@@ -162,9 +161,7 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
   */
   appInfoMap: {},
 
-  cardReady: true,
-
-  cardState: null,
+  cardReady: null,
 
   init: function(secureelement) {
     this.secureelement = secureelement;
@@ -199,17 +196,18 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
   },
 
   _initializeSEListeners: function() {
-    // Attach a listener to UICC state changes (clientId: 0)
-    iccProvider.registerIccMsg(CLIENT_ID, this);
-
-    // TBD: Initialize eSE listener here
+    // Attach a listener to UICC state changes
+    debug("Default Client ID " + DEFAULT_UICC_CLIENTID);
+    iccProvider.registerIccMsg(DEFAULT_UICC_CLIENTID, this);
   },
 
   _uninitializeSEListeners: function() {
-    // Detach the listener to UICC state changes (clientId: 0)
-    iccProvider.unregisterIccMsg(CLIENT_ID, this);
+    // Detach the listener to UICC state changes
 
-    // TBD: Uninitialize eSE listener here
+    // TBD: This is only here to debug issues. Will be removed in production code
+    libcutils.property_set("ro.se.state", " ");
+
+    iccProvider.unregisterIccMsg(DEFAULT_UICC_CLIENTID, this);
   },
 
   _registerMessageTarget: function(message) {
@@ -239,7 +237,7 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
         // Remove the target from the list of registered targets
         debug("Unregisterd MessageTarget for AppId : " + appId);
         this._closeAllChannelsByAppId(targets[appId], function(status) {
-          if (status == FAILURE) {
+          if (status ==  SE.ERROR_GENERIC_FAILURE) {
             debug("Oops! Too bad, XXX Memory Leak? XXX : Unable to close (all) channel(s) held by the AppId : " + appId);
           }
           delete targets[appId];
@@ -267,7 +265,7 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
     let sessionId = data.sessionId;
     let aid = data.aid;
     let type = data.type;
-    let status = FAILURE;
+    let status =  SE.ERROR_GENERIC_FAILURE;
 
     let appInfo = this.appInfoMap[appId];
     if (!appInfo) {
@@ -290,11 +288,11 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
       }
     }
 
-    // TBD if (session.channels.length <= MAX_CHANNELS_ALLOWED_PER_SESSION) 
+    // TBD if (session.channels.length <= SE.MAX_CHANNELS_ALLOWED_PER_SESSION)
     if (session.type === type) {
       session.channels[token] = { channel: channel,
                                   aid: aid };
-      status = SUCCESS;
+      status =  SE.ERROR_SUCCESS;
     } else {
       debug("Number of Channels : " +  session.channels.length +
             " Session Type " + session.type + " vs " + type + " for sessionId: " + sessionId);
@@ -393,72 +391,18 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
       cla = (((cla & 0xB0) & 0xFF) | 0x40 | (channelNumber - 4));
     } else {
 	debug("Channel number must be within [0..19]");
-        return FAILURE;
+        return  SE.ERROR_GENERIC_FAILURE;
     }
     return cla;
   },
 
-  _closeAllChannelsByAppId: function(appId, callback) {
-    let status = SUCCESS;
-    let channels = this._getAllChannelsByAppId(appId);
-    let count = 0;
-
-    do {
-      if (channels == null || channels.length == 0) {
-        status |= FAILURE;
-        break;
-      }
-
-      for (let channelNumber in channels) {
-        debug('Close Channel # - ' + channelNumber);
-        iccProvider.iccCloseChannel(CLIENT_ID, channelNumber , {
-	  notifyOpenChannelSuccess: function(channel) {},
-
-	  notifyCloseChannelSuccess: function() {
-            ++ count;
-            status |= SUCCESS;
-            if (callback && (count == channels.length))
-	      callback({ status: status });
-          },
-
-	  notifyError: function(error) {
-            ++ count;
-            status |= FAILURE;
-            if (callback && (count == channels.length))
-	      callback({ status: status, error: error });
-	  }
-	});
-      }
-    } while(false);
-
-    if (callback)
-      callback(status);
-  },
-
-  _closeAllChannelsBySessionId: function(sessionId, appId, callback) {
-    let status = SUCCESS;
-    let channels = this._getAllChannelsBySessionId(sessionId, appId);
-    do {
-      if (channels == null || channels.length == 0)
-        break;
-      for (let channelNumber in channels) {
-        //iccProvider.iccCloseChannel(1, channelNumber, null);
-      }
-   } while(false);
-
-    if (callback)
-      callback(status);
-  },
-
   _openChannel: function(data, callback) {
-    let status = FAILURE;
+    let status =  SE.ERROR_GENERIC_FAILURE;
     // TBD: Validate the AID 'data.aid' with ACE
-    iccProvider.iccOpenChannel(CLIENT_ID, this._byte2hexString(data.aid) , {
+    iccProvider.iccOpenChannel(DEFAULT_UICC_CLIENTID, this._byte2hexString(data.aid) , {
       notifyOpenChannelSuccess: function(channel) {
 	let token = UUIDGenerator.generateUUID().toString();
-	if (((this.cardState === CARDSTATE_READY) || true) && (data.type === 'uicc')) {
-	  status = gSEMessageManager._addChannelToSession(channel, token, data);
-	}
+	status = gSEMessageManager._addChannelToSession(channel, token, data);
 	if (callback) {
 	  callback({ status: status,
                      token : token });
@@ -481,7 +425,7 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
     let p2 = apduCmd[3] & 0xFF;
     let lc = ((apduCmd[4] === 0) || (apduCmd[4] === undefined)) ? 0 : (apduCmd[4] & 0xFF);
     let data = ( lc > 0 ) ? apduCmd.subarray(5) : null;
-    iccProvider.iccExchangeAPDU(CLIENT_ID, channel , (cla & 0xFC), ins, p1, p2, lc, data, {
+    iccProvider.iccExchangeAPDU(DEFAULT_UICC_CLIENTID, channel , (cla & 0xFC), ins, p1, p2, lc, data, {
       notifyExchangeAPDUResponse: function(sw1, sw2, length, simResponse) {
         callback({ sw1: sw1, sw2: sw2, simResponse: simResponse });
       },
@@ -499,17 +443,56 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
     let channelNumber = this.appInfoMap[appId].sessions[sessionId].channels[token].channel;
 
     if (channelNumber !== undefined) {
-      debug('Channel # to be closed ' + channelNumber);
-      iccProvider.iccCloseChannel(CLIENT_ID, channelNumber , {
+      debug('Attempting to Close Channel # : ' + channelNumber);
+      iccProvider.iccCloseChannel(DEFAULT_UICC_CLIENTID, channelNumber , {
         notifyCloseChannelSuccess: function() {
           if (callback) {
-	    callback({ status: SUCCESS });
+	    callback({ status:  SE.ERROR_SUCCESS });
 	  }
         },
 
         notifyError: function(error) {
-	  callback({ status: FAILURE, error: error });
+	  callback({ status:  SE.ERROR_GENERIC_FAILURE, error: error });
         }
+      });
+    }
+  },
+
+  _closeAllChannelsByAppId: function(appId, callback) {
+    this._closeAll(this._getAllChannelsByAppId(appId),
+                   callback);
+  },
+
+  _closeAllChannelsBySessionId: function(sessionId, appId, callback) {
+    this._closeAll(this._getAllChannelsBySessionId(sessionId, appId),
+                   callback);
+  },
+
+  _closeAll: function(channels, callback) {
+    if (!channels || channels.length === 0) {
+      if (callback)
+        callback({ status:  SE.ERROR_GENERIC_FAILURE, error: 'No Active Channels to be closed!'});
+    }
+
+    let status =  SE.ERROR_SUCCESS;
+    // Ignore the zero based indexing, start with '1'
+    let count = 1;
+
+    for (let channelNumber in channels) {
+      debug('Attempting to Close Channel # : ' + channelNumber);
+      iccProvider.iccCloseChannel(DEFAULT_UICC_CLIENTID, channelNumber , {
+
+	notifyCloseChannelSuccess: function() {
+          status |=  SE.ERROR_SUCCESS;
+          if (callback && (++count === channels.length))
+	    callback({ status: status });
+        },
+
+	notifyError: function(error) {
+          status |=  SE.ERROR_GENERIC_FAILURE;
+          if (callback && (++count === channels.length))
+	    callback({ status: status, error: error });
+	}
       });
     }
   },
@@ -525,6 +508,18 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
 		                            });
       }
     });
+  },
+
+  _isUiccInReadyState: function() {
+    // Consider following Card states as not quite ready for issuing IccChannel* related commands
+    let notReadyStates = [
+      "unknown",
+      "illegal",
+      "personalizationInProgress",
+      "permanentBlocked"
+    ];
+    let cardState = iccProvider.getCardState(DEFAULT_UICC_CLIENTID);
+    return (((cardState !== null) && (notReadyStates.indexOf(cardState) == -1)) ? true : false);
   },
 
   _hexStringToBytes: function(hexString) {
@@ -559,7 +554,7 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
 
   receiveMessage: function(msg) {
      debug("Received '" + msg.name + "' message from content process" + ": " + JSON.stringify(msg.json));
-    let status = FAILURE;
+    let status =  SE.ERROR_GENERIC_FAILURE;
     let token = null;
     let sessionId = null;
     let message = msg;
@@ -588,6 +583,11 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
       return null;
     }
 
+    // This step is necessary as sometimes the card state change is not getting notified
+    // during boot up sequence (Maybe due to a race condition ?)
+    if (this.cardReady === null)
+      this.cardReady = this._isUiccInReadyState();
+
     switch (msg.name) {
       case "SE:GetSEReaders":
         let secureelements = [];
@@ -612,7 +612,7 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
       case "SE:OpenChannel":
         this._openChannel(msg.json, function(result) {
           debug('In _openChannel CALLBACL CALLED status - ' + result.status + '  ' + result.token);
-          promiseStatus = (result.status === SUCCESS) ? "Resolved" : "Rejected";
+          promiseStatus = (result.status ===  SE.ERROR_SUCCESS) ? "Resolved" : "Rejected";
           options = { aid: message.json.aid,
                       channelToken: result.token,
                       sessionId: message.json.sessionId,
@@ -624,6 +624,7 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
         return;
       case "SE:TransmitAPDU":
         let command = msg.json.apdu;
+        // TBD: Check if it is meant for type 'uicc'
         let channel = this._getChannel(msg);
         command[0] = this._setChannelToClassByte(command[0], channel);
         this._transmit(msg, command, function(result) {
@@ -643,14 +644,14 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
                       sessionId: message.json.sessionId,
                       resolverId: msg.json.resolverId
                     };
-          promiseStatus = (result.status === SUCCESS) ? "Resolved" : "Rejected";
+          promiseStatus = (result.status ===  SE.ERROR_SUCCESS) ? "Resolved" : "Rejected";
           message.target.sendAsyncMessage(message.name+promiseStatus, options);
 	});
         // Send the response from the callback, for now return!
         return;
       case "SE:CloseAllBySession":
         this._closeAllChannelsBySessionId(msg.json.sessionId, msg.json.appId, function(status) {
-          promiseStatus = (status === SUCCESS) ? "Resolved" : "Rejected";
+          promiseStatus = (status ===  SE.ERROR_SUCCESS) ? "Resolved" : "Rejected";
           let thisSession = self.appInfoMap[message.json.appId].sessions[message.json.sessionId];
           // clear this session info
           if (thisSession !== undefined && thisSession.type === message.json.type)
@@ -662,7 +663,7 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
         return;
       case "SE:CloseAllByReader":
         this._closeAllChannelsByAppId(msg.json.appId, function(status) {
-          promiseStatus = (status === SUCCESS) ? "Resolved" : "Rejected";
+          promiseStatus = (status ===  SE.ERROR_SUCCESS) ? "Resolved" : "Rejected";
           let thisReaderSession = self.appInfoMap[message.json.appId].sessions;
           // clear this session info
           if (thisReaderSession !== undefined)
@@ -700,19 +701,11 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
    notifyStkSessionEnd: function() {},
 
    notifyCardStateChanged: function() {
-     // Consider following Card states as not quite ready for issuing IccChannel* related commands
-     let notReadyStates = [
-       "unknown",
-       "illegal",
-       "personalizationInProgress",
-       "permanentBlocked"
-     ];
-     this.cardState = iccProvider.getCardState(CLIENT_ID);
-     this.cardReady = ((this.cardState !== null) && (notReadyStates.indexOf(this.cardState) == -1)) ? true : false;
+     this.cardReady = this._isUiccInReadyState();
      this._notifyAllTargetsOnSEStateChange("uicc", this.cardReady);
-     libcutils.property_set('persist.check.se', this.cardReady + ' ' + this.cardState);
-     libcutils.property_set('persist.check.se1', 'hurrah');
-     debug("CardStateChanged: " + this.cardState + "CardReady : " + this.cardReady);
+     // TBD: This is only here to debug issues. Will be removed in production code
+     libcutils.property_set("ro.se.state", this.cardReady + " ");
+     debug("CardStateChanged: " + "CardReady : " + this.cardReady);
    },
 
    notifyIccInfoChanged: function() {}
