@@ -387,10 +387,10 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
   _setChannelToClassByte(cla, channelNumber) {
     if (channelNumber < 4) {
       // b7 = 0 indicates the first interindustry class byte coding
-      cla = (((cla & 0x9C) & 0x0F) | channelNumber);
+      cla = (((cla & 0x9C) & 0xFF) | channelNumber);
     } else if (channelNumber < 20) {
       // b7 = 1 indicates the further interindustry class byte coding
-      cla = (((cla & 0xB0) & 0x0F) | 0x40 | (channelNumber - 4));
+      cla = (((cla & 0xB0) & 0xFF) | 0x40 | (channelNumber - 4));
     } else {
 	debug("Channel number must be within [0..19]");
         return FAILURE;
@@ -471,8 +471,8 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
     });
   },
 
-  _transmit: function(msg, channel, apduCmd, callback) {
-    //let channel = this._getChannelNumber(apduCmd[0] & 0xFF);
+  _transmit: function(msg, apduCmd, callback) {
+    let channel = this._getChannelNumber(apduCmd[0] & 0xFF);
     debug('transmit on Channel # - ' + channel);
     // TBD: Validate the AID 'data.aid' with ACE
     let cla = apduCmd[0] & 0xFF;
@@ -620,13 +620,13 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
                     };
           message.target.sendAsyncMessage(message.name+promiseStatus, options);
         });
-        // Send the response when in the callback, for now return!
+        // Send the response from the callback, for now return!
         return;
       case "SE:TransmitAPDU":
         let command = msg.json.apdu;
         let channel = this._getChannel(msg);
-        //command[0] = this._setChannelToClassByte(command[0], channel);
-        this._transmit(msg, channel, command, function(result) {
+        command[0] = this._setChannelToClassByte(command[0], channel);
+        this._transmit(msg, command, function(result) {
           promiseStatus = (result.sw1 === 144 && result.sw2 === 0) ? "Resolved" : "Resolved";
           options = { channelToken: message.json.channelToken,
                       respApdu: result,
@@ -634,7 +634,7 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
                     };
           message.target.sendAsyncMessage(message.name+promiseStatus, options);
         });
-        // Send the response when in the callback, for now return!
+        // Send the response from the callback, for now return!
         return;
       case "SE:CloseChannel":
         this._closeChannel(msg.json, function(result) {
@@ -646,7 +646,7 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
           promiseStatus = (result.status === SUCCESS) ? "Resolved" : "Rejected";
           message.target.sendAsyncMessage(message.name+promiseStatus, options);
 	});
-        // Send the response when in the callback, for now return!
+        // Send the response from the callback, for now return!
         return;
       case "SE:CloseAllBySession":
         this._closeAllChannelsBySessionId(msg.json.sessionId, msg.json.appId, function(status) {
@@ -658,7 +658,7 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
           options = { sessionId: message.json.sessionId,
                       resolverId: message.json.resolverId };
         });
-        // Send the response when in the callback, for now return!
+        // Send the response from the callback, for now return!
         return;
       case "SE:CloseAllByReader":
         this._closeAllChannelsByAppId(msg.json.appId, function(status) {
@@ -671,7 +671,7 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
                       resolverId: message.json.resolverId };
           message.target.sendAsyncMessage(message.name+promiseStatus, options);
         });
-        // Send the response when in the callback, for now return!
+        // Send the response from the callback, for now return!
         return;
       default:
         throw new Error("Don't know about this message: " + msg.name);
