@@ -1,0 +1,25 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this file,
+ * You can obtain one at http://mozilla.org/MPL/2.0/. */
+
+/* Copyright © 2015, Deutsche Telekom, Inc. */
+
+#include "nsISupports.idl"
+
+[scriptable, uuid(04c247ac-1d7c-403b-91e5-de3f1c9c1c93)]
+interface nsIAccessRulesManager : nsISupports
+{
+  /**
+   * Initiates Access Rules Manager, this should perform the initial
+   * reading of rules from access rule source
+   * @return Promise which is resolved if init is successful or rejected
+   *         otherwise
+   */
+  jsval init();
+
+  /**
+   * Retrieves all access rules
+   * @return Promise which resolves with Array containing parsed access rules
+   */
+  jsval getAccessRules();
+};

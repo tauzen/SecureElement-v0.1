@@ -121,6 +121,7 @@ WEBIDL_FILES = [
     'EventListener.webidl',
     'EventSource.webidl',
     'EventTarget.webidl',
+    'FakeApi.webidl',
     'File.webidl',
     'FileList.webidl',
     'FileMode.webidl',

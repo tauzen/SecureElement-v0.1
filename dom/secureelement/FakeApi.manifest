@@ -1,0 +1,2 @@
+component {6ff2b290-2573-11e3-8224-0800200c9a77} FakeApi.js
+contract @mozilla.org/navigatorFake;1 {6ff2b290-2573-11e3-8224-0800200c9a77}

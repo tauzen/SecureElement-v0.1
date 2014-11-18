@@ -1973,6 +1973,8 @@ RILContentHelper.prototype = {
       return;
     }
 
+    debug("response is XXX " + message.simResponse + " :: " + (typeof message.simResponse));
+
     return !message.errorMsg ?
            callback.notifyExchangeAPDUResponse(message.sw1, message.sw2, message.simResponse) :
            callback.notifyError(message.errorMsg);

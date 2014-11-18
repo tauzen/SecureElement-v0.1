@@ -5,10 +5,19 @@
 #
 # Copyright © 2015 Deutsche Telekom, Inc.
 
+XPIDL_MODULE = 'dom_secureelement'
+
 if CONFIG['MOZ_SECUREELEMENT']:
+    XPIDL_SOURCES += [
+        'nsIAccessRulesManager.idl',
+    ]
     EXTRA_COMPONENTS += [
         'DOMSecureElement.js',
         'DOMSecureElement.manifest',
+        'FakeApi.js',
+        'FakeApi.manifest',
+        'GPAccessRulesManager.js',
+        'GPAccessRulesManager.manifest',
     ]
 
 XPIDL_MODULE = 'dom_secureelement'
@@ -22,6 +31,7 @@ if CONFIG['MOZ_WIDGET_TOOLKIT'] == 'gonk' and CONFIG['MOZ_SECUREELEMENT']:
         'gonk/nsISecureElementConnector.idl',
     ]
     EXTRA_JS_MODULES += [
+        'ACEService.jsm',
         'gonk/se_consts.js',
         'SEUtils.jsm'
     ]
