@@ -28,5 +28,8 @@ this.MAX_CHANNELS_ALLOWED_PER_SESSION = 4;
 this.ERROR_SUCCESS = 0;
 this.ERROR_GENERIC_FAILURE = 1;
 
+this.SE_TYPE_UICC = 'uicc';
+this.SE_TYPE_eSE = 'eSE';
+
 // Allow this file to be imported via Components.utils.import().
 this.EXPORTED_SYMBOLS = Object.keys(this);
