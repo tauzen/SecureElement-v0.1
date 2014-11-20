@@ -355,24 +355,21 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
     return (channelNumbers.length > 0) ? channelNumbers : null;
   },
 
-  _getChannel: function(msg) {
-    let appId = msg.json.appId;
-    let sessionId = msg.json.sessionId;
-    let channelToken = msg.json.channelToken;
-    let aid = msg.json.aid;
-
-    return this.appInfoMap[appId].sessions[sessionId].channels[channelToken].channel;
-
+  _getChannel: function(data) {
+    return this.appInfoMap[data.appId].sessions[data.sessionId].channels[data.channelToken].channel;
   },
 
-  _isRegisterednForGivenType: function(type, details) {
-    let appId = details.appId;
-    let sessionId  = details.sessionId;
+  _getType: function(data) {
+    return this.appInfoMap[data.appId].sessions[data.sessionId].type;
+  },
 
-    if (this.appInfoMap[appId].sessions[sessionId].type === type)
-      return true;
+  _validateAID: function(aid, data) {
+    let regAid = this.appInfoMap[data.appId].sessions[data.sessionId].channels[data.channelToken].aid;
+    return (this._byte2hexString(aid) === this._byte2hexString(regAid));
+  },
 
-    return false;
+  _isRegisteredForGivenType: function(type, data) {
+    return (this.appInfoMap[data.appId].sessions[data.sessionId].type === type);
   },
 
   _getChannelNumber: function(cla) {
@@ -404,19 +401,21 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
   },
 
   _openChannel: function(data, callback) {
-    if (!this._isRegisterednForGivenType(data.type,
-                                        {appId: data.appId, sessionId: data.sessionId}) && callback) {
-      callback({ status: SE.ERROR_GENERIC_FAILURE, error: 'Invalid / Unregistered sessiond ID: ' + data.sessionId +
-               ' AND / OR AppId : ' + data.appId + ' for the given type : ' + data.type });
+    if (!this._isRegisteredForGivenType(data.type,
+                                        {appId: data.appId, sessionId: data.sessionId})) {
+      if (callback)
+        callback({ status: SE.ERROR_GENERIC_FAILURE, error: 'Invalid / Unregistered sessiond ID: ' + data.sessionId +
+                 ' AND / OR AppId : ' + data.appId + ' for the given type : ' + data.type });
       return;
     }
+
+    // TBD: Validate the AID 'data.aid' with ACE
 
     if (data.type === SE.SE_TYPE_UICC)
       this._doUiccOpenChannel(data, callback);
   },
 
   _doUiccOpenChannel: function(data, callback) {
-    // TBD: Validate the AID 'data.aid' with ACE
     iccProvider.iccOpenChannel(PREFERRED_UICC_CLIENTID, this._byte2hexString(data.aid) , {
       notifyOpenChannelSuccess: function(channel) {
 	let token = UUIDGenerator.generateUUID().toString();
@@ -433,16 +432,70 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
     });
   },
 
-  _transmit: function(msg, apduCmd, callback) {
-    let channel = this._getChannelNumber(apduCmd[0] & 0xFF);
-    if (DEBUG) debug('transmit on Channel # - ' + channel);
-    // TBD: Validate the AID 'data.aid' with ACE
+  _transmit: function(data, callback) {
+    let command = data.apdu;
+    let error = null;
+    let type = this._getType({appId: data.appId, sessionId: data.sessionId});
+    do {
+      // Sanity Checks!
+      if (!this._validateAID(data.aid, data)) {
+        error = 'Invalid AID - ' + data.aid + ', [appId: ' + data.appId + ', sessionId: ' + data.sessionId + ', token: ' + data.channelToken + ' ]';
+        break;
+      }
+
+      if (command.length > SE.MAX_APDU_LEN) {
+        error = 'Data length exceeds max limit - ' + SE.MAX_APDU_LEN + ' Extended APDU is not supported! : ' + command.length;
+        break;
+      }
+
+      if (command.length < SE.APDU_HEADER_LEN) {
+        error: 'command must not be smaller than 4 bytes';
+        break;
+      }
+
+      if (((command[0] & (0xFF & 0x80) === 0)) &&
+          ((0xFF & (command[0] & (0xFF & 0x60))) !== (0xFF & 0x20))) {
+        if (command[1] === (0xFF & SE.INS_MANAGE_CHANNEL)) {
+          error = 'MANAGE CHANNEL command not permitted';
+          break;
+        }
+        if ((command[1] === (0xFF & SE.INS_SELECT)) && (command[2] == (0xFF & 0x04))) {
+          // SELECT by DF Name (p1=04) is not allowed
+          error = 'SELECT command not permitted';
+          break;
+        }
+        if (DEBUG) debug('Attempting to transmit an ISO command');
+      } else {
+        if (DEBUG) debug('Attempting to transmit GlobalPlatform command');
+      }
+
+      // TBD: Validate the AID 'data.aid' with ACE
+
+    } while(false);
+
+    if (error !== null) {
+      if (callback) callback({ status: SE.ERROR_GENERIC_FAILURE, error: error });
+      debug('Sanity Check fails for transmit command, Reason :- ' + error);
+      return;
+    }
+
+    // See GP Spec, 11.1.4 Class Byte Coding
+    command[0] = this._setChannelToClassByte(command[0], this._getChannel(data));
+
+    if (type === SE.SE_TYPE_UICC)
+      this._doUiccTransmit(data.apdu, callback);
+  },
+
+  _doUiccTransmit: function(apduCmd, callback) {
     let cla = apduCmd[0] & 0xFF;
     let ins = apduCmd[1] & 0xFF;
-    let p1 = apduCmd[2] & 0xFF;
-    let p2 = apduCmd[3] & 0xFF;
-    let lc = ((apduCmd[4] === 0) || (apduCmd[4] === undefined)) ? 0 : (apduCmd[4] & 0xFF);
+    let p1  = apduCmd[2] & 0xFF;
+    let p2  = apduCmd[3] & 0xFF;
+    let lc  = ((apduCmd[4] === 0) || (apduCmd[4] === undefined)) ? 0 : (apduCmd[4] & 0xFF);
     let data = ( lc > 0 ) ? apduCmd.subarray(5) : null;
+
+    let channel = this._getChannelNumber(apduCmd[0] & 0xFF);
+    if (DEBUG) debug('transmit on Channel # - ' + channel);
     iccProvider.iccExchangeAPDU(PREFERRED_UICC_CLIENTID, channel , (cla & 0xFC), ins, p1, p2, lc, data, {
       notifyExchangeAPDUResponse: function(sw1, sw2, length, simResponse) {
         callback({ sw1: sw1, sw2: sw2, simResponse: simResponse });
@@ -455,11 +508,21 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
   },
 
   _closeChannel: function(data, callback) {
-    let token = data.channelToken;
-    let sessionId = data.sessionId;
-    let appId = data.appId;
-    let channelNumber = this.appInfoMap[appId].sessions[sessionId].channels[token].channel;
+    let type = this._getType({appId: data.appId, sessionId: data.sessionId});
+    if (!this._validateAID(data.aid, data)) {
+      if (callback) callback({ status: SE.ERROR_GENERIC_FAILURE,
+                               error: 'Invalid AID - ' + data.aid + ', [appId: ' + data.appId + ', sessionId: ' + data.sessionId + ', token: ' + data.channelToken + ' ]' });
+      return;
+    }
 
+    this.appInfoMap[data.appId].sessions[data.sessionId].
+    // TBD: Validate the AID 'data.aid' with ACE
+
+    if (type === SE.SE_TYPE_UICC)
+      this._doUiccCloseChannel(this._getChannel(data), callback);
+  },
+
+  _doUiccCloseChannel: function(channelNumber, callback) {
     if (channelNumber !== undefined) {
       if (DEBUG) debug('Attempting to Close Channel # : ' + channelNumber);
       iccProvider.iccCloseChannel(PREFERRED_UICC_CLIENTID, channelNumber , {
@@ -639,11 +702,7 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
         // Send the response from the callback, for now return!
         return;
       case "SE:TransmitAPDU":
-        let command = msg.json.apdu;
-        // TBD: Check if it is meant for type 'uicc'
-        let channel = this._getChannel(msg);
-        command[0] = this._setChannelToClassByte(command[0], channel);
-        this._transmit(msg, command, function(result) {
+        this._transmit(msg.json, function(result) {
           promiseStatus = (result.sw1 === 144 && result.sw2 === 0) ? "Resolved" : "Resolved";
           options = { channelToken: message.json.channelToken,
                       respApdu: result,

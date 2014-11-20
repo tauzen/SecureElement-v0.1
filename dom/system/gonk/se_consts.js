@@ -25,6 +25,15 @@ this.DEBUG_SE = false || DEBUG_ALL;
 // Maximun logical channels per session.
 this.MAX_CHANNELS_ALLOWED_PER_SESSION = 4;
 
+// According GPCardSpec 2.2.xx
+this.MAX_APDU_LEN = 255; // including APDU header
+
+// CLA (1 byte) + INS (1 byte) + P1 (1 byte) + P2 (1 byte)
+this.APDU_HEADER_LEN = 4;
+
+this.INS_SELECT = 0xA4;
+this.INS_MANAGE_CHANNEL = 0x70;
+
 this.ERROR_SUCCESS = 0;
 this.ERROR_GENERIC_FAILURE = 1;
 
