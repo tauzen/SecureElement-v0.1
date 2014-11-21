@@ -234,9 +234,8 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
         // Remove the target from the list of registered targets
         debug("Unregisterd MessageTarget for AppId : " + appId);
         this._closeAllChannelsByAppId(targets[appId], function(status) {
-          if (status ===  SE.ERROR_GENERIC_FAILURE) {
+          if (status ===  SE.ERROR_GENERIC_FAILURE)
             debug("Oops! Too bad, XXX Memory Leak? XXX : Unable to close (all) channel(s) held by the AppId : " + appId);
-          }
           delete targets[appId];
         });
         return;
@@ -416,7 +415,11 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
   },
 
   _doUiccOpenChannel: function(data, callback) {
-    iccProvider.iccOpenChannel(PREFERRED_UICC_CLIENTID, this._byte2hexString(data.aid) , {
+    let aidStr = this._byte2hexString(data.aid);
+    if (aidStr === "")
+      aidStr = null; // If Null, and indeed no AID was passed, select the default applet is exists
+
+    iccProvider.iccOpenChannel(PREFERRED_UICC_CLIENTID, aidStr , {
       notifyOpenChannelSuccess: function(channel) {
 	let token = UUIDGenerator.generateUUID().toString();
 	let status = gSEMessageManager._addChannelToSession(channel, token, data);
@@ -491,12 +494,17 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
     let ins = apduCmd[1] & 0xFF;
     let p1  = apduCmd[2] & 0xFF;
     let p2  = apduCmd[3] & 0xFF;
-    let lc  = ((apduCmd[4] === 0) || (apduCmd[4] === undefined)) ? 0 : (apduCmd[4] & 0xFF);
-    let data = ( lc > 0 ) ? apduCmd.subarray(5) : null;
+    let p3  = ((apduCmd[4] === 0) || (apduCmd[4] === undefined)) ? 0 : (apduCmd[4] & 0xFF);
+    // Check P3 > 0 AND the apdu length. The second condition is needed to explicitly
+    // check if there are 'data bytes' indeed. If there are no 'data bytes (i;e; apduCmd.length is '5')
+    // and P3 is > 0, this means 'P3' shall be still interpreted as 'Le'
+
+    // TBD: This condition shall be revisited after adding 'Extended APDU support'
+    let data = ( (p3 > 0) && (apduCmd.length > 5) ) ? apduCmd.subarray(5) : null;
 
     let channel = this._getChannelNumber(apduCmd[0] & 0xFF);
     if (DEBUG) debug('transmit on Channel # - ' + channel);
-    iccProvider.iccExchangeAPDU(PREFERRED_UICC_CLIENTID, channel , (cla & 0xFC), ins, p1, p2, lc, data, {
+    iccProvider.iccExchangeAPDU(PREFERRED_UICC_CLIENTID, channel , (cla & 0xFC), ins, p1, p2, p3, data, {
       notifyExchangeAPDUResponse: function(sw1, sw2, length, simResponse) {
         callback({ sw1: sw1, sw2: sw2, simResponse: simResponse });
       },
@@ -511,7 +519,8 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
     let type = this._getType({appId: data.appId, sessionId: data.sessionId});
     if (!this._validateAID(data.aid, data)) {
       if (callback) callback({ status: SE.ERROR_GENERIC_FAILURE,
-                               error: 'Invalid AID - ' + data.aid + ', [appId: ' + data.appId + ', sessionId: ' + data.sessionId + ', token: ' + data.channelToken + ' ]' });
+                               error: 'Invalid AID - ' + data.aid + ', [appId: ' + data.appId +
+                               ', sessionId: ' + data.sessionId + ', token: ' + data.channelToken + ' ]' });
       return;
     }
 
@@ -688,7 +697,6 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
         break;
       case "SE:OpenChannel":
         this._openChannel(msg.json, function(result) {
-          debug('In _openChannel CALLBACL CALLED status - ' + result.status + '  ' + result.token);
           promiseStatus = (result.status ===  SE.ERROR_SUCCESS) ? "Resolved" : "Rejected";
           options = { aid: message.json.aid,
                       channelToken: result.token,
