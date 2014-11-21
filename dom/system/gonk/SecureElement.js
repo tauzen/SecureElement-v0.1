@@ -515,9 +515,7 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
       return;
     }
 
-    this.appInfoMap[data.appId].sessions[data.sessionId].
     // TBD: Validate the AID 'data.aid' with ACE
-
     if (type === SE.SE_TYPE_UICC)
       this._doUiccCloseChannel(this._getChannel(data), callback);
   },
