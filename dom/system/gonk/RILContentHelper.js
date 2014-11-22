@@ -1990,7 +1990,7 @@ RILContentHelper.prototype = {
     let requestId = message.requestId;
     let callback = this._getIccChannelCallback(requestId);
 
-    let responseBytes = (message.simResponse !== null && message.simResponse.length > 0) ?
+    let responseBytes = (!!message.simResponse && message.simResponse.length > 0) ?
                           this._hexStringToBytes(message.simResponse) : null;
     let responseLength = (responseBytes !== null ) ? responseBytes.length : 0;
     if (callback) {

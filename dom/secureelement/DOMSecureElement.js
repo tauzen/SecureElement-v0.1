@@ -228,7 +228,7 @@ function SEResponse(win, respApdu, channelObj) {
   this.data = null;
   this.status = 0;
   this.channel = channelObj;
-  if (respApdu.simResponse.length <= 0) {
+  if (!respApdu.simResponse || respApdu.simResponse.length <= 0) {
     debug('Response APDU : Not Present ');
   } else {
     this.data = respApdu.simResponse.slice(0, respApdu.length);
