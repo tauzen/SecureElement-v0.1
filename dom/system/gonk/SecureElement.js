@@ -123,27 +123,38 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
                sessions : { [11111 : // sessionId 1 (key)
                                     type :
                                     channels : { [aaaaa: // 'token' 1 (key)
+                                                         type:
                                                          aid :
-                                                         channelNumber : ]
+                                                         channelNumber :
+                                                         openResponse : ]
                                                  [bbbbb: // 'token' 2 (key)
+                                                         type:
                                                          aid :
                                                          channelNumber : ]
                                                  [ccccc: // 'token' 3 (key)
+                                                         type:
                                                          aid :
-                                                         channelNumber : ]
+                                                         channelNumber :
+                                                         openResponse : ]
                                                }
                             ]
                             [22222 : // sessionId 2 (key)
                                     type :
                                     channels : { [ddddd: // 'token' 1 (key)
+                                                         type:
                                                          aid :
-                                                         channelNumber : ]
+                                                         channelNumber :
+                                                         openResponse : ]
                                                  [eeeee: // 'token' 2 (key)
+                                                         type:
                                                          aid :
-                                                         channelNumber : ]
+                                                         channelNumber :
+                                                         openResponse : ]
                                                  [fffff: // 'token' 3 (key)
+                                                         type:
                                                          aid :
-                                                         channelNumber : ]
+                                                         channelNumber :
+                                                         openResponse : ]
                                                }
                             ]
                           } // End of 'sessions'
@@ -153,6 +164,8 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
                  ... : { [..... :
                                  ..
                                  .. : { .... :
+                                              ..
+                                              ..
                                               ..
                                               ..
                                       }
@@ -241,14 +254,14 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
     });
   },
 
-  _removeAllSessionEntries: function(msg) {
+   _removeAllSessions: function(msg) {
     let allSessions = this.appInfoMap[msg.appId].sessions;
     // reset all sessions
     if (!!allSessions)
       allSessions = {};
   },
 
-  _addSessionEntryToTarget: function(sessionId, msg) {
+   _addSession: function(sessionId, msg) {
     let appId = msg.appId;
     let type = msg.type;
 
@@ -267,11 +280,9 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
       delete sessions[msg.sessionId];
   },
 
-  _addChannelEntryToSession: function(channelNumber, token, data) {
-    let appId = data.appId;
-    let sessionId = data.sessionId;
-    let aid = data.aid;
-    let type = data.type;
+  _addChannel: function(channelInfo, msg) {
+    let appId = msg.appId;
+    let token = channelInfo.token;
     let status = SE.ERROR_GENERIC_FAILURE;
 
     let appInfo = this.appInfoMap[appId];
@@ -279,27 +290,29 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
       debug("Unable to add session to the target: " + appId);
       return status;
     }
-    let session = appInfo.sessions[sessionId];
+    let session = appInfo.sessions[msg.sessionId];
     if (!session) {
-      debug("Unable to add session " + sessionId + "appId:" + appId);
+      debug("Unable to add session " + msg.sessionId + "appId:" + appId);
       return status;
     }
 
     let channel = session.channels[token];
     // If channel with this 'token' is not yet added AND session type matches
-    if (!channel && (session.type === type)) {
+    if (!channel && (session.type === msg.type)) {
       // Add the entry
-      session.channels[token] = { channel: channelNumber,
-                                  aid: aid };
+      session.channels[token] = { type: channelInfo.type,
+                                  channel: channelInfo.channel,
+                                  aid: msg.aid,
+                                  response: channelInfo.openResponse };
       return SE.ERROR_SUCCESS;
     }
     if (DEBUG) debug("Unable to add channel entry , Type Mismatch - " + session.type + " Vs " +
-                     type + " (or) Channel already added:" + channel + " " +
+                     msg.type + " (or) Channel already added:" + channel + " " +
                      session.channels[token].channel);
     return status;
   },
 
-  _removeChannelEntry: function(channelNumber, type) {
+   _removeChannel: function(channelNumber, type) {
     let targets = this.appInfoMap;
     Object.keys(targets).forEach((appId) => {
       let sessions = targets[appId].sessions;
@@ -480,6 +493,11 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
         break;
       }
 
+      if (data.aid.length < SE.MIN_AID_LEN || data.aid.length > SE.MAX_AID_LEN) {
+        error = "Invalid AID length";
+        break;
+      }
+
       if (this._getChannelCountBySessionId(data.sessionId, data.appId) >=
             SE.MAX_CHANNELS_ALLOWED_PER_SESSION) {
         error = "Max channels per session exceed !!!";
@@ -499,23 +517,41 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
       this._doUiccOpenChannel(data, callback);
   },
 
-  _doUiccOpenChannel: function(data, callback) {
-    let aidStr = this._byte2hexString(data.aid);
+  _doUiccOpenChannel: function(msg, callback) {
+    let aidStr = this._byte2hexString(msg.aid);
     if (aidStr === "")
       aidStr = null; // If Null, and indeed no AID was passed, select the default applet is exists
 
     iccProvider.iccOpenChannel(PREFERRED_UICC_CLIENTID, aidStr, {
       notifyOpenChannelSuccess: function(channel) {
-        let token = UUIDGenerator.generateUUID().toString();
-        let status = gSEMessageManager._addChannelEntryToSession(channel, token, data);
-        if (callback) {
-          callback({ status: status, token: token });
-        }
+        // Now that we have received a 'channel', try to get the 'openResponse'
+        gSEMessageManager._getOpenResponse(channel, function(response) {
+          let token = UUIDGenerator.generateUUID().toString();
+          let channelData = {channel: channel,
+                             token: token,
+                             openResponse: response,
+                             type: SE.CHANNEL_TYPE_LOGICAL};
+          let status = gSEMessageManager._addChannel(channelData, msg);
+          if (callback) {
+            callback({ status: response.status, token: token });
+          }
+        });
       },
 
       notifyError: function(error) {
         callback({ status: SE.ERROR_GENERIC_FAILURE, error: error });
       }
+    });
+  },
+
+  _getOpenResponse: function(channel, callback) {
+    // cla: channel, ins: 0xC0, p1: 0x00, p2: 0x00
+    let apduOpenRespBytes = new Uint8Array([(channel & 0xFF), SE.GET_RESPONSE, 0x00, 0x00, 0x00]);
+    // lc: 0x00, implies data is empty AND le:0x00, indicates the UICC card to get
+    // all the available response bytes.
+    this._doUiccTransmit(apduOpenRespBytes, function(result) {
+      if (DEBUG) debug('Open Response : ' + result.simResponse);
+      callback(result);
     });
   },
 
@@ -542,7 +578,7 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
       }
 
       if (command.length < SE.APDU_HEADER_LEN) {
-        error: "command must not be smaller than 4 bytes";
+        error: "command cannot not be smaller than 4 bytes";
         break;
       }
 
@@ -590,10 +626,10 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
     // (i;e; apduCmd.length is '5') and P3 is > 0, implies 'P3' shall be still interpreted as 'Le'.
 
     // TBD: This condition shall be revisited after adding 'Extended APDU support'
-    let data = ((p3 > 0) && (apduCmd.length > 5)) ? apduCmd.subarray(5) : null;
+    let data = ((p3 > 0) && (apduCmd.length > 5)) ? this._byte2hexString(apduCmd.subarray(5)) : null;
     let channel = this._getChannelNumber(apduCmd[0] & 0xFF);
-    if (DEBUG) debug("transmit on Channel # - " + channel);
 
+    if (DEBUG) debug("transmit on Channel # -!" + channel);
     iccProvider.iccExchangeAPDU(PREFERRED_UICC_CLIENTID, channel,
                                  (cla & 0xFC), ins, p1, p2, p3, data, {
       notifyExchangeAPDUResponse: function(sw1, sw2, length, simResponse) {
@@ -673,7 +709,7 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
       iccProvider.iccCloseChannel(PREFERRED_UICC_CLIENTID, channelNumber, {
         notifyCloseChannelSuccess: function() {
           if (DEBUG) debug("notifyCloseChannelSuccess # : " + channelNumber);
-          gSEMessageManager._removeChannelEntry(channelNumber, SE.TYPE_UICC);
+          gSEMessageManager._removeChannel(channelNumber, SE.TYPE_UICC);
           status |= SE.ERROR_SUCCESS;
           if (callback && (++count === channels.length))
             callback({ status: status });
@@ -726,6 +762,9 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
   _byte2hexString: function(array) {
     let hexString = "";
     let hex;
+
+    if (!array)
+      return hexString;
 
     for (let i = 0; i < array.length; i++) {
       hex = array[i].toString(16).toUpperCase();
@@ -789,7 +828,7 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
       case "SE:OpenSession":
         if ((this.cardReady) && (msg.json.type === SE.TYPE_UICC)) {
           let sessionId = UUIDGenerator.generateUUID().toString();
-          this._addSessionEntryToTarget(sessionId, msg.json);
+          this._addSession(sessionId, msg.json);
           options = { sessionId: sessionId,
                       type: msg.json.type,
                       resolverId: msg.json.resolverId };
@@ -829,7 +868,7 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
       case "SE:CloseAllBySession":
         this._closeAllChannelsBySessionId(msg.json.sessionId, msg.json.appId, function(status) {
           promiseStatus = (status === SE.ERROR_SUCCESS) ? "Resolved" : "Rejected";
-          this._removeSessionEntry(message.json);
+          gSEMessageManager._removeSessionEntry(message.json);
           options = { sessionId: message.json.sessionId,
                       resolverId: message.json.resolverId };
           message.target.sendAsyncMessage(message.name + promiseStatus, options);
@@ -839,7 +878,7 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
       case "SE:CloseAllByReader":
         this._closeAllChannelsByAppId(msg.json.appId, function(status) {
           promiseStatus = (status === SE.ERROR_SUCCESS) ? "Resolved" : "Rejected";
-          this._removeAllSessionEntries(message.json);
+          gSEMessageManager._removeAllSessions(message.json);
           options = { type: message.json.type,
                       resolverId: message.json.resolverId };
           message.target.sendAsyncMessage(message.name + promiseStatus, options);
@@ -875,7 +914,7 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
    notifyCardStateChanged: function() {
      this.cardReady = this._isUiccInReadyState();
      this._notifyAllTargetsOnSEStateChange("uicc", this.cardReady);
-     if (DEBUG) debug("CardStateChanged: " + "CardReady : " + this.cardReady);
+     if (DEBUG) debug("CardStateChanged, " + "CardReady : " + this.cardReady);
    },
 
    notifyIccInfoChanged: function() {}

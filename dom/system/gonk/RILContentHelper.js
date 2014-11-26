@@ -1073,18 +1073,20 @@ RILContentHelper.prototype = {
     });
   },
 
-  iccExchangeAPDU: function(clientId, channel, cla, ins, p1, p2, lc, data, callback) {
+  iccExchangeAPDU: function(clientId, channel, cla, ins, p1, p2, p3, data, callback) {
     let requestId = UUIDGenerator.generateUUID().toString();
     this._addIccChannelCallback(requestId, callback);
 
-    let apduStr = (!data) ? null : this._byte2hexString(data);
+    if (!data)
+      if (DEBUG) debug('data is not set , p3 : ' + p3);
+
     let apdu = {
       cla: cla,
       command: ins,
       p1: p1,
       p2: p2,
-      p3: lc,
-      data: apduStr
+      p3: p3,
+      data: data
     };
 
     //Potentially you need serialization here and can't pass the jsval through
@@ -1686,21 +1688,6 @@ RILContentHelper.prototype = {
     return bytes;
   },
 
-  _byte2hexString: function(array) {
-    let hexString = "";
-    let hex;
-
-    for (let i = 0; i < array.length; i++) {
-      hex = array[i].toString(16).toUpperCase();
-      if (hex.length === 1) {
-        hexString += "0";
-      }
-      hexString += hex;
-    }
-
-    return hexString;
-  },
-
   receiveMessage: function(msg) {
     let request;
     if (DEBUG) {
@@ -1971,8 +1958,9 @@ RILContentHelper.prototype = {
 
     let callback = this._getIccChannelCallback(requestId);
     if (callback) {
-      let notify = (!message.errorMsg) ? callback.notifyOpenChannelSuccess(channel) :
-                                         callback.notifyError(message.errorMsg);
+      delete this._iccChannelCallback[requestId];
+      return !message.errorMsg ? callback.notifyOpenChannelSuccess(channel) :
+                                 callback.notifyError(message.errorMsg);
     }
   },
 
@@ -1981,8 +1969,9 @@ RILContentHelper.prototype = {
     let callback = this._getIccChannelCallback(requestId);
 
     if (callback) {
-      let notify = (!message.errorMsg) ? callback.notifyCloseChannelSuccess() :
-                                         callback.notifyError(message.errorMsg);
+      delete this._iccChannelCallback[requestId];
+      return !message.errorMsg ? callback.notifyCloseChannelSuccess() :
+                                 callback.notifyError(message.errorMsg);
     }
   },
 
@@ -1990,14 +1979,21 @@ RILContentHelper.prototype = {
     let requestId = message.requestId;
     let callback = this._getIccChannelCallback(requestId);
 
-    let responseBytes = (!!message.simResponse && message.simResponse.length > 0) ?
-                          this._hexStringToBytes(message.simResponse) : null;
-    let responseLength = (responseBytes !== null ) ? responseBytes.length : 0;
-    if (callback) {
-      let notify = (!message.errorMsg) ?
-                     callback.notifyExchangeAPDUResponse(message.sw1, message.sw2, responseLength, responseBytes) :
-                     callback.notifyError(message.errorMsg);
+    if (!callback) {
+      return;
     }
+
+    delete this._iccChannelCallback[requestId];
+    let responseBytes = null;
+    let responseLength = 0;
+    if (message.simResponse) {
+      responseBytes = this._hexStringToBytes(message.simResponse);
+      responseLength = responseBytes.length;
+    }
+
+    return !message.errorMsg ?
+           callback.notifyExchangeAPDUResponse(message.sw1, message.sw2, responseLength, responseBytes) :
+           callback.notifyError(message.errorMsg);
   },
 
   handleReadIccContacts: function(message) {

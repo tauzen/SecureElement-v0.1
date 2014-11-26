@@ -32,12 +32,24 @@ this.BASIC_CHANNEL = 0;
 
 // According GPCardSpec 2.2.xx
 this.MAX_APDU_LEN = 255; // including APDU header
+// According to ISO/IEC 7816-4, all GlobalPlatform responses returned in APDU
+// response messages shall have a maximum length of 256 bytes of response data
+this.MAX_APDU_RESPONSE_LEN = 256;
+
 
 // CLA (1 byte) + INS (1 byte) + P1 (1 byte) + P2 (1 byte)
 this.APDU_HEADER_LEN = 4;
+this.APDU_DATA_OFFSET_WITH_LC = 5;
+
+this.MIN_AID_LEN = 5;
+this.MAX_AID_LEN = 16;
 
 this.INS_SELECT = 0xA4;
 this.INS_MANAGE_CHANNEL = 0x70;
+this.GET_RESPONSE = 0xC0;
+
+this.CHANNEL_TYPE_BASIC = 0;
+this.CHANNEL_TYPE_LOGICAL = 1;
 
 this.ERROR_SUCCESS = 0;
 this.ERROR_GENERIC_FAILURE = 1;

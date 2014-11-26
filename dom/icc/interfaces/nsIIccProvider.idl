@@ -61,7 +61,7 @@ interface nsIIccChannelCallback : nsISupports
 /**
  * XPCOM component (in the content process) that provides the ICC information.
  */
-[scriptable, uuid(7a93578d-b389-4bec-9ea3-5ee4cf048710)]
+[scriptable, uuid(70f95f49-ebe3-4f9f-ab30-e9cd571706c0)]
 interface nsIIccProvider : nsISupports
 {
   /**
@@ -142,8 +142,8 @@ interface nsIIccProvider : nsISupports
                        in octet ins,
                        in octet p1,
                        in octet p2,
-                       in unsigned long lc,
-                       [array, size_is(lc)] in octet data,
+                       in unsigned long p3,
+                       in DOMString data,
                        in nsIIccChannelCallback callback);
 
   void iccCloseChannel(in unsigned long clientId,

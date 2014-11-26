@@ -267,7 +267,6 @@ SEChannel.prototype = {
   QueryInterface: XPCOMUtils.generateQI([]),
 
   transmit: function(command) {
-
     if (command == null) {
       throw new Error("Invalid APDU");
     }
@@ -281,13 +280,16 @@ SEChannel.prototype = {
       throw new Error("Missing APDU Mandatory headers!");
     }
 
+    let le = -1;
+    let dataLen = -1;
     let offset = 0;
     let apduFieldsLen = 4; // (CLA + INS + P1 + P2)
-    let dataLen = ( !command.data ) ? 0 : command.data.length;
+    dataLen = ( !command.data ) ? 0 : command.data.length;
     if (dataLen > 0) {
       apduFieldsLen++; // Lc
     }
-    if (command.le) {
+    if (command.le !== -1) {
+      le = command.le;
       apduFieldsLen++; // Le
     }
 
@@ -296,20 +298,20 @@ SEChannel.prototype = {
     }
 
     let apduCommand = new Uint8Array(apduFieldsLen + dataLen);
-    apduCommand[offset++] = (command.cla);
-    apduCommand[offset++] = (command.ins);
-    apduCommand[offset++] = (command.p1);
-    apduCommand[offset++] = (command.p2);
+    apduCommand[offset++] = command.cla & 0xFF;
+    apduCommand[offset++] = command.ins & 0xFF;
+    apduCommand[offset++] = command.p1 & 0xFF;
+    apduCommand[offset++] = command.p2 & 0xFF;
     if (dataLen > 0) {
       let index = 0;
       // TBD: Extended APDU support is not supported for now
       apduCommand[offset++] = dataLen & 0xFF;
-      while(offset < SE_MAX_APDU_LEN && index < (apduFieldsLen + dataLen)) {
+      while(offset < SE_MAX_APDU_LEN && index < dataLen) {
         apduCommand[offset++] = command.data[index++];
       }
     }
-    if (command.le) {
-      apduCommand[offset] = (command.le);
+    if (le !== -1) {
+      apduCommand[offset] = command.le;
     }
 
     return PromiseHelpers._createPromise((aResolverId) => {
@@ -365,15 +367,14 @@ SESession.prototype = {
   },
 
   openLogicalChannel: function(aid) {
-    if(aid == null || aid.length == 0) {
-      // TBD: Should this be treated as default application selection ?
+    if(!aid) {
+      throw new Error("Open channel without select AID is not supported by UICC !!!");
     }
-    if (this.isClosed) {
-      throw new Error("Session Already Closed!");
+
+    if (aid.length < 5 || aid.length > 16) {
+      throw new Error("Invalid AID length");
     }
-    if (aid) {
-      this._aid = Cu.waiveXrays(aid);
-    }
+    this._aid = Cu.waiveXrays(aid);
     
     return PromiseHelpers._createPromise((aResolverId) => {
       cpmm.sendAsyncMessage("SE:OpenChannel", {
@@ -394,6 +395,11 @@ SESession.prototype = {
         appId: this._window.document.nodePrincipal.appId
       });
     });
+  },
+
+  get atr() {
+    // 'Answer to Reset' is not supported for now, return null.
+    return null;
   }
 };
 
