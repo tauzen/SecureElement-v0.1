@@ -243,12 +243,13 @@ SEResponse.prototype = {
  * ==============================================
  */
 
-function SEChannel(win, aid, channelToken, sessionObj, sessionId) {
+function SEChannel(win, aid, channelToken, sessionObj, openResponse, sessionId) {
   this._window       = win;
   this._aid          = aid;
   this._channelToken = channelToken;
   this._sessionId    = sessionId;
   this.session       = sessionObj;
+  this.openResponse = Cu.cloneInto(new Uint8Array(openResponse), win);
   this.isClosed      = false;
 }
 
@@ -567,6 +568,7 @@ SEManager.prototype = {
                                   data.aid, 
                                   data.channelToken, 
                                   SEStateHelper.getSessionObjById(data.sessionId),
+                                  data.openResponse,
                                   data.sessionId);
         contentObj = this._window.SEChannel._create(this._window, chromeObj);
         // Update 'channel obj'
