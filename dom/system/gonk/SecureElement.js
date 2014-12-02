@@ -307,7 +307,7 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
     return status;
   },
 
-   _removeChannel: function(channelNumber, type) {
+  _removeChannel: function(channelNumber, type) {
     let targets = this.appInfoMap;
     Object.keys(targets).forEach((appId) => {
       let sessions = targets[appId].sessions;
@@ -435,7 +435,8 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
   },
 
   _validateAID: function(aid, data) {
-    let regAid = this.appInfoMap[data.appId].sessions[data.sessionId].channels[data.channelToken].aid;
+    let regAid =
+      this.appInfoMap[data.appId].sessions[data.sessionId].channels[data.channelToken].aid;
     return this._compareAIDs(aid, regAid);
   },
 
@@ -482,23 +483,23 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
     do {
       // Sanity Checks!
       if (!this._isValidSession(msg)) {
-        error = "Invalid Session " +  msg.sessionId + " for appId : " +  msg.appId;
+        error = "Invalid Session " + msg.sessionId + " for appId : " + msg.appId;
         break;
       }
 
       if (!this._isRegisteredForGivenType(msg.type,
-                                          {appId:  msg.appId, sessionId:  msg.sessionId})) {
-        error = "Invalid / Unregistered sessiond ID: " +  msg.sessionId +
-                " AND / OR AppId : " +  msg.appId + " for the given type : " +  msg.type;
+                                          {appId: msg.appId, sessionId: msg.sessionId})) {
+        error = "Invalid / Unregistered sessiond ID: " + msg.sessionId +
+                " AND / OR AppId : " + msg.appId + " for the given type : " + msg.type;
         break;
       }
 
-      if (msg.aid.length < SE.MIN_AID_LEN ||  msg.aid.length > SE.MAX_AID_LEN) {
+      if (msg.aid.length < SE.MIN_AID_LEN || msg.aid.length > SE.MAX_AID_LEN) {
         error = "Invalid AID length";
         break;
       }
 
-      if (this._getChannelCountBySessionId(msg.sessionId,  msg.appId) >=
+      if (this._getChannelCountBySessionId(msg.sessionId, msg.appId) >=
             SE.MAX_CHANNELS_ALLOWED_PER_SESSION) {
         error = "Max channels per session exceed !!!";
         break;
@@ -555,18 +556,18 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
   },
 
   _transmit: function(msg, callback) {
-    let command =  msg.apdu;
+    let command = msg.apdu;
     let error = null;
     do {
       // Sanity Checks!
       if (!this._isValidSession(msg)) {
-        error = "Invalid Session " +  msg.sessionId + " for appId : " +  msg.appId;
+        error = "Invalid Session " + msg.sessionId + " for appId : " + msg.appId;
         break;
       }
 
-      if (!this._validateAID(msg.aid,  msg)) {
-        error = "Invalid AID - " +  msg.aid + ", [appId: " +  msg.appId + ", sessionId: " +
-                  msg.sessionId + ", token: " +  msg.channelToken + " ]";
+      if (!this._validateAID(msg.aid, msg)) {
+        error = "Invalid AID - " + msg.aid + ", [appId: " + msg.appId + ", sessionId: " +
+                  msg.sessionId + ", token: " + msg.channelToken + " ]";
         break;
       }
 
@@ -609,7 +610,7 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
     // See GP Spec, 11.1.4 Class Byte Coding
     command[0] = this._setChannelToClassByte(command[0], this._getChannel(msg));
 
-    let type = this._getType({appId:  msg.appId, sessionId:  msg.sessionId});
+    let type = this._getType({appId: msg.appId, sessionId: msg.sessionId});
     if (type === SE.TYPE_UICC)
       this._doUiccTransmit(msg.apdu, callback);
   },
@@ -647,13 +648,13 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
     do {
       // Sanity Checks!
       if (!this._isValidSession(msg)) {
-        error = "Invalid Session " +  msg.sessionId + " for appId : " +  msg.appId;
+        error = "Invalid Session " + msg.sessionId + " for appId : " + msg.appId;
         break;
       }
 
-      if (!this._validateAID(msg.aid,  msg)) {
-        error = "Invalid AID - " +  msg.aid + ", [appId: " +  msg.appId +
-                ", sessionId: " +  msg.sessionId + ", token: " +  msg.channelToken + " ]";
+      if (!this._validateAID(msg.aid, msg)) {
+        error = "Invalid AID - " + msg.aid + ", [appId: " + msg.appId +
+                ", sessionId: " + msg.sessionId + ", token: " + msg.channelToken + " ]";
       }
 
       // TBD: Validate the AID ''msg.aid' with ACE
@@ -664,7 +665,7 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
       return;
     }
 
-    let type = this._getType({appId:  msg.appId, sessionId:  msg.sessionId});
+    let type = this._getType({appId: msg.appId, sessionId: msg.sessionId});
     if (type === SE.TYPE_UICC)
       this._doUiccCloseChannel(this._getChannel(msg), callback);
   },
@@ -702,7 +703,8 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
         debug("Basic Channel can never be closed!");
         status |= SE.ERROR_GENERIC_FAILURE;
         if (callback && (++count === channels.length))
-          callback({ status: SE.ERROR_GENERIC_FAILURE, error: "Basic Channel can never be closed!"});
+          callback({ status: SE.ERROR_GENERIC_FAILURE,
+                      error: "Basic Channel can never be closed!"});
       }
 
       iccProvider.iccCloseChannel(PREFERRED_UICC_CLIENTID, channelNumber, {

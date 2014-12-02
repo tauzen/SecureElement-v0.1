@@ -369,7 +369,8 @@ SESession.prototype = {
   QueryInterface: XPCOMUtils.generateQI([]),
 
   openBasicChannel: function(aid) {
-    debug("NOT IMPLEMENTED!!!")
+    if (this.reader.type === 'uicc')
+      throw new Error("OpenBasicChannel() is not allowed for SE type : 'uicc'" + );
   },
 
   openLogicalChannel: function(aid) {
