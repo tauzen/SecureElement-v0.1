@@ -22,24 +22,31 @@ this.DEBUG_ALL = true;
 this.DEBUG_ACE = false || DEBUG_ALL;
 this.DEBUG_SE = false || DEBUG_ALL;
 
+// Ideally this should have been 3, as we do not allow basic channel' : 0 on 'uicc'.
+// Max number of supplementary logical channels available would be : [1, 2, or 3].
+// Other SE types may support upto max 4.
+
 // Maximun logical channels per session.
-// NOTE: Ideally this should have been 4. But since we do not allow
-// basic channel' : 0, the supplementary logical channels available
-// would be : [1, 2, or 3]
-this.MAX_CHANNELS_ALLOWED_PER_SESSION = 3;
+this.MAX_CHANNELS_ALLOWED_PER_SESSION = 4;
 
-this.BASIC_CHANNEL = 0;
+this.TYPE_BASIC_CHANNEL = 0;
+this.TYPE_LOGICAL_CHANNEL = 1;
 
-// According GPCardSpec 2.2.xx
+// According GPCardSpec 2.2
 this.MAX_APDU_LEN = 255; // including APDU header
 // According to ISO/IEC 7816-4, all GlobalPlatform responses returned in APDU
 // response messages shall have a maximum length of 256 bytes of response data
 this.MAX_APDU_RESPONSE_LEN = 256;
 
-
 // CLA (1 byte) + INS (1 byte) + P1 (1 byte) + P2 (1 byte)
 this.APDU_HEADER_LEN = 4;
-this.APDU_DATA_OFFSET_WITH_LC = 5;
+
+this.CLA_BYTE_OFFSET = 0;
+this.INS_BYTE_OFFSET = 1;
+this.P1_BYTE_OFFSET = 2;
+this.P2_BYTE_OFFSET = 3;
+this.P3_BYTE_OFFSET = 4;
+this.DATA_BYTE_OFFSET = 5;
 
 this.MIN_AID_LEN = 5;
 this.MAX_AID_LEN = 16;
@@ -47,9 +54,6 @@ this.MAX_AID_LEN = 16;
 this.INS_SELECT = 0xA4;
 this.INS_MANAGE_CHANNEL = 0x70;
 this.GET_RESPONSE = 0xC0;
-
-this.CHANNEL_TYPE_BASIC = 0;
-this.CHANNEL_TYPE_LOGICAL = 1;
 
 this.ERROR_SUCCESS = 0;
 this.ERROR_GENERIC_FAILURE = 1;

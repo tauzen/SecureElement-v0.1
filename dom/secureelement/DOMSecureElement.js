@@ -177,12 +177,6 @@ PromiseHelpersSubclass.prototype = {
         resolve: aResolve,
         reject: aReject
       });
-      // TBD: On some condition, say
-      if (false) {
-        this.removePromiseResolver(resolverId);
-        aReject('SEManager is not active.');
-        return;
-      }
       aCallback(resolverId);
     });
   }
@@ -196,18 +190,15 @@ let PromiseHelpers;
  * SECommand
  * ==============================================
  */
-function SECommand(cla, ins, p1, p2, data, len) {
-  debug('In SECommand Constructor');
-}
-
+function SECommand() {}
 SECommand.prototype = {
-  __init: function (cla, ins, p1, p2, data, len) {
+  __init: function (cla, ins, p1, p2, data, le) {
     this.cla = cla;
     this.ins = ins;
     this.p1 = p1;
     this.p2 = p2;
     this.data = data
-    this.len = len;
+    this.le = le;
   },
 
   classID: Components.ID("{cb8ccb1c-0e99-4a62-bf7d-11acc13848e0}"),
@@ -228,13 +219,13 @@ function SEResponse(win, respApdu, channelObj) {
   this.data = null;
   this.status = 0;
   this.channel = channelObj;
-  if (!respApdu.simResponse || respApdu.simResponse.length <= 0) {
-    debug('Response APDU : Not Present ');
+  if (!respApdu.simResponse) {
+    debug('APDU Response: Empty / Not Set!');
   } else {
     this.data = respApdu.simResponse.slice(0, respApdu.length);
   }
 
-  // Anyways update the status bytes
+  // Update the status bytes
   this.sw1 = respApdu.sw1;
   this.sw2 = respApdu.sw2;
   this.status = (this.sw1 << 8) | this.sw2;
@@ -284,7 +275,7 @@ SEChannel.prototype = {
     let dataLen = -1;
     let offset = 0;
     let apduFieldsLen = 4; // (CLA + INS + P1 + P2)
-    dataLen = ( !command.data ) ? 0 : command.data.length;
+    dataLen = !command.data ? 0 : command.data.length;
     if (dataLen > 0) {
       apduFieldsLen++; // Lc
     }
@@ -315,14 +306,16 @@ SEChannel.prototype = {
     }
 
     return PromiseHelpers._createPromise((aResolverId) => {
-      cpmm.sendAsyncMessage("SE:TransmitAPDU", {
-        resolverId: aResolverId,
-        apdu: apduCommand,
-        channelToken: this._channelToken,
-        aid: this._aid,
-        sessionId: this._sessionId,
-        appId: this._window.document.nodePrincipal.appId
-      });
+      let params = {
+                     resolverId: aResolverId,
+                     apdu: apduCommand,
+                     channelToken: this._channelToken,
+                     aid: this._aid,
+                     sessionId: this._sessionId,
+                     appId: this._window.document.nodePrincipal.appId
+                   };
+      cpmm.sendAsyncMessage("SE:TransmitAPDU", params);
+
     });
   },
 
@@ -333,14 +326,26 @@ SEChannel.prototype = {
 
     this.isClosed = true;
     return PromiseHelpers._createPromise((aResolverId) => {
-      cpmm.sendAsyncMessage("SE:CloseChannel", {
-        resolverId: aResolverId,
-        aid: this._aid,
-        channelToken: this._channelToken,
-        sessionId: this._sessionId,
-        appId: this._window.document.nodePrincipal.appId
-      });
+      let params = {
+                     resolverId: aResolverId,
+                     aid: this._aid,
+                     channelToken: this._channelToken,
+                     sessionId: this._sessionId,
+                     appId: this._window.document.nodePrincipal.appId
+                   };
+      cpmm.sendAsyncMessage("SE:CloseChannel", params);
     });
+  },
+
+  get type() {
+    let params = {
+                   channelToken: this._channelToken,
+                   sessionId: this._sessionId,
+                   appId: this._window.document.nodePrincipal.appId
+                 };
+    let type = cpmm.sendSyncMessage("SE:GetType", params);
+    // The array values must match the enum value of 'SEChannelType' specified in webidl.
+    return ['basic','logical'][type];
   }
 };
 
@@ -377,23 +382,25 @@ SESession.prototype = {
     this._aid = Cu.waiveXrays(aid);
     
     return PromiseHelpers._createPromise((aResolverId) => {
-      cpmm.sendAsyncMessage("SE:OpenChannel", {
-        resolverId: aResolverId,
-        aid: this._aid,
-        sessionId: this._sessionId,
-        type: this.reader.type,
-        appId: this._window.document.nodePrincipal.appId
-      });
+      let params = {
+                     resolverId: aResolverId,
+                     aid: this._aid,
+                     sessionId: this._sessionId,
+                     type: this.reader.type,
+                     appId: this._window.document.nodePrincipal.appId
+                   };
+      cpmm.sendAsyncMessage("SE:OpenChannel", params);
     });
   },
 
   closeAll: function() {
     return PromiseHelpers._createPromise((aResolverId) => {
-      cpmm.sendAsyncMessage("SE:CloseAllBySession", {
-        resolverId: aResolverId,
-        sessionId: this._sessionId,
-        appId: this._window.document.nodePrincipal.appId
-      });
+      let params = {
+                     resolverId: aResolverId,
+                     sessionId: this._sessionId,
+                     appId: this._window.document.nodePrincipal.appId
+                   };
+      cpmm.sendAsyncMessage("SE:CloseAllBySession", params);
     });
   },
 
@@ -424,21 +431,23 @@ SEReader.prototype = {
 
   openSession: function() {
     return PromiseHelpers._createPromise((aResolverId) => {
-      cpmm.sendAsyncMessage("SE:OpenSession", {
-        resolverId: aResolverId,
-        type: this.type,
-        appId: this._window.document.nodePrincipal.appId
-      });
+      let params = {
+                     resolverId: aResolverId,
+                     type: this.type,
+                     appId: this._window.document.nodePrincipal.appId
+                   };
+      cpmm.sendAsyncMessage("SE:OpenSession", params);
     });
   },
 
   closeAll: function() {
     return PromiseHelpers._createPromise((aResolverId) => {
-      cpmm.sendAsyncMessage("SE:CloseAllByReader", {
-        resolverId: aResolverId,
-        type: this.type,
-        appId: this._window.document.nodePrincipal.appId
-      });
+      let params = {
+                     resolverId: aResolverId,
+                     type: this.type,
+                     appId: this._window.document.nodePrincipal.appId
+                   };
+      cpmm.sendAsyncMessage("SE:CloseAllByReader", params);
     });
   }
 };
@@ -498,8 +507,10 @@ SEManager.prototype = {
   },
 
   uninit: function SEManagerUninit() {
-    this.destroyDOMRequestHelper();
-    this._window = null;
+     this.destroyDOMRequestHelper();
+     SEStateHelper.stateInfoMap = {};
+     PromiseHelpersSubclass = null;
+     this._window = null;
   },
 
   _ensureAccess: function() {
@@ -512,10 +523,11 @@ SEManager.prototype = {
   getSEReaders: function() {
     this._ensureAccess();
     return PromiseHelpers._createPromise((aResolverId) => {
-      cpmm.sendAsyncMessage("SE:GetSEReaders", {
-        resolverId: aResolverId,
-        appId: this._window.document.nodePrincipal.appId
-      });
+    let params = {
+                   resolverId: aResolverId,
+                   appId: this._window.document.nodePrincipal.appId
+                 };
+      cpmm.sendAsyncMessage("SE:GetSEReaders", params);
 
     });
   },
