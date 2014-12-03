@@ -345,7 +345,7 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
           debug("                               channels : " + token);
           debug("                                         Type : " + channels[token].type));
           debug("                                         channelNumber : " + channels[token].channel);
-          debug("                                         AID : " + this._byte2hexString(channels[token].aid));
+          debug("                                         AID : " + this._byteTohexString(channels[token].aid));
         }); // End of Channels keys
       }); // End of Sessions keys
     }); // End of AppId keys
@@ -441,7 +441,7 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
   },
 
   _compareAIDs: function(aid1, aid2) {
-    return (this._byte2hexString(aid1) === this._byte2hexString(aid2));
+    return (this._byteTohexString(aid1) === this._byteTohexString(aid2));
   },
 
   _isValidSession: function(data) {
@@ -519,14 +519,14 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
   },
 
   _doUiccOpenChannel: function(msg, callback) {
-    let aidStr = this._byte2hexString(msg.aid);
+    let aidStr = this._byteTohexString(msg.aid);
     if (aidStr === "")
       aidStr = null; // If Null, and indeed no AID was passed, select the default applet is exists
 
     iccProvider.iccOpenChannel(PREFERRED_UICC_CLIENTID, aidStr, {
       notifyOpenChannelSuccess: function(channel) {
         // Now that we have received a 'channel', try to get the 'openResponse'
-        gSEMessageManager._doGetOpenResponse(channel, function(result) {
+        gSEMessageManager._doGetResponse(channel, 0x00, function(result) {
           let token = UUIDGenerator.generateUUID().toString();
           let channelData = { channel: channel,
                               token: token,
@@ -539,18 +539,18 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
       },
 
       notifyError: function(error) {
-        callback({ status: SE.ERROR_GENERIC_FAILURE, error: error, openResponse: null });
+        if (callback) callback({ status: SE.ERROR_GENERIC_FAILURE, error: error, openResponse: [] });
       }
     });
   },
 
-  _doGetOpenResponse: function(channel, callback) {
-    // cla: channel, ins: 0xC0, p1: 0x00, p2: 0x00, p3: 0x00 (Le)
-    let apduOpenRespBytes = new Uint8Array([(channel & 0xFF), SE.GET_RESPONSE, 0x00, 0x00, 0x00]);
+  _doGetResponse: function(channel, length, callback) {
+    // cla: channel, ins: 0xC0, p1: 0x00, p2: 0x00, p3: 0x00 (length)
+    let apduOpenRespBytes = new Uint8Array([(channel & 0xFF), SE.GET_RESPONSE, 0x00, 0x00, length]);
     // data is not set AND p3:0x00, is an indication to UICC card to get
     // all the available response bytes.
     this._doUiccTransmit(apduOpenRespBytes, function(result) {
-      if (DEBUG) debug('Open Response : ' + result.simResponse);
+      if (DEBUG) debug('GET Response : ' + result.simResponse);
       callback(result);
     });
   },
@@ -627,18 +627,64 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
     // (i;e; if apduCmd.length = '5' and P3 is > 0, implies 'P3'
     // shall still be interpreted as 'Le'.
     let data = ((p3 > 0) && (apduCmd.length > SE.DATA_BYTE_OFFSET)) ?
-                this._byte2hexString(apduCmd.subarray(SE.DATA_BYTE_OFFSET)) : null;
+                this._byteTohexString(apduCmd.subarray(SE.DATA_BYTE_OFFSET)) : null;
     let channel = this._getChannelNumber(apduCmd[0] & 0xFF);
     if (DEBUG) debug("transmit on Channel # " + channel);
 
-    iccProvider.iccExchangeAPDU(PREFERRED_UICC_CLIENTID, channel,
-                                 (cla & 0xFC), ins, p1, p2, p3, data, {
+    // We pass empty result '[]' as args as we are not interested in appended responses yet!
+    this._doIccExchangeAPDU(PREFERRED_UICC_CLIENTID, channel,
+                            cla, ins, p1, p2, p3, data, [], callback);
+
+  },
+
+  _doIccExchangeAPDU: function(clientId, channel, cla, ins, p1, p2, p3, data, appendResponse, callback) {
+    let response = [];
+    let self = this;
+
+    iccProvider.iccExchangeAPDU(clientId, channel,
+                                (cla & 0xFC), ins, p1, p2, p3, data, {
       notifyExchangeAPDUResponse: function(sw1, sw2, length, simResponse) {
-        callback({ status: SE.ERROR_SUCCESS, sw1: sw1, sw2: sw2, simResponse: simResponse });
+
+        if (DEBUG) debug("sw1 : " + sw1 + ", sw2 : " + sw2 +
+                         ", simResponse : " + self._byteTohexString(simResponse));
+        // Append the response
+        response = (simResponse && simResponse.length > 0) ?
+                   appendResponse.concat(simResponse) : appendResponse;
+
+        // According to ETSI TS 102 221 , See section 7.2.2.3.1:
+        // Enforce 'Procedure bytes' checks before notifying the callback. Note that
+        // 'Procedure bytes'are special cases.
+
+        // There is no need to handle '0x60' procedure byte as it implies no-action from SE
+        // stack perspective. In any case this procedure byte is not notified to application
+        // layer (?).
+        if (sw1 === 0x6C) {
+          // Use the previous command header with length as second procedure byte (SW2) as received
+          // and repeat the procedure. i,e; '_doIccExchangeAPDU(...)'.
+          if (DEBUG) debug("Enforce '0x6C' Procedure with sw2 : " + sw2);
+
+          // Recursive! and We pass empty result '[]' as args, since '0x6C' procedure
+          // does not have to deal with appended responses.
+          self._doIccExchangeAPDU(PREFERRED_UICC_CLIENTID, channel,
+                                  cla, ins, p1, p2, sw2, data, [], callback);
+        } else if (sw1 === 0x61) {
+          if (DEBUG) debug("Enforce '0x61' Procedure with sw2 : " + sw2);
+          // Since the terminal waited for a second procedure byte and received it (sw2), send a
+          // GET RESPONSE command header to the UICC with a maximum length of 'XX',
+          // where 'XX' is the value of the second procedure byte (SW2).
+
+          // Recursive, with GET RESPONSE bytes and '0x61' procedure IS interested in
+          // appended responses.
+          self._doIccExchangeAPDU(PREFERRED_UICC_CLIENTID, channel,
+                                  (channel & 0xFF), SE.GET_RESPONSE, 0x00, 0x00, sw2, null,
+                                  response, callback);
+        } else if (callback) {
+          callback({ status: SE.ERROR_SUCCESS, sw1: sw1, sw2: sw2, simResponse: response });
+        }
       },
 
       notifyError: function(error) {
-        callback({ status: SE.ERROR_GENERIC_FAILURE, error: error, simResponse: null });
+        if (callback) callback({ status: SE.ERROR_GENERIC_FAILURE, error: error, simResponse: [] });
       }
     });
   },
@@ -760,11 +806,11 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
     return bytes;
   },
 
-  _byte2hexString: function(array) {
+  _byteTohexString: function(array) {
     let hexString = "";
     let hex;
 
-    if (!array)
+    if (!array || array.length === 0)
       return hexString;
 
     for (let i = 0; i < array.length; i++) {

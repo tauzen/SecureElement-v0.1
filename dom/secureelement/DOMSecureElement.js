@@ -219,7 +219,7 @@ function SEResponse(win, respApdu, channelObj) {
   this.data = null;
   this.status = 0;
   this.channel = channelObj;
-  if (!respApdu.simResponse) {
+  if (!respApdu.simResponse || respApdu.simResponse.length === 0) {
     debug('APDU Response: Empty / Not Set!');
   } else {
     this.data = respApdu.simResponse.slice(0, respApdu.length);
@@ -370,7 +370,7 @@ SESession.prototype = {
 
   openBasicChannel: function(aid) {
     if (this.reader.type === 'uicc')
-      throw new Error("OpenBasicChannel() is not allowed for SE type : 'uicc'" + );
+      throw new Error("OpenBasicChannel() is not allowed for SE type : 'uicc'" );
   },
 
   openLogicalChannel: function(aid) {
