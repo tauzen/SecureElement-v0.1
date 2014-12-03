@@ -45,7 +45,8 @@ const SE_IPC_SECUREELEMENT_MSG_NAMES = [
   "SE:TransmitAPDU",
   "SE:CloseAllByReader",
   "SE:CloseAllBySession",
-  "SE:GetType"
+  "SE:CheckSEState",
+  "SE:GetChannelType"
 ];
 
 // set to true in se_consts.js to see debug messages
@@ -120,42 +121,44 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
        Structure of 'appInfoMap':
      ------------------------------
      { [ appId :// appId 1 (key)
-               target   : msg.target
-               sessions : { [11111 : // sessionId 1 (key)
-                                    type :
-                                    channels : { [aaaaa: // 'token' 1 (key)
-                                                         type:
-                                                         aid :
-                                                         channelNumber : ]
-                                                 [bbbbb: // 'token' 2 (key)
-                                                         type:
-                                                         aid :
-                                                         channelNumber : ]
-                                                 [ccccc: // 'token' 3 (key)
-                                                         type:
-                                                         aid :
-                                                         channelNumber :]
-                                               }
-                            ]
-                            [22222 : // sessionId 2 (key)
-                                    type :
-                                    channels : { [ddddd: // 'token' 1 (key)
-                                                         type:
-                                                         aid :
-                                                         channelNumber :]
-                                                 [eeeee: // 'token' 2 (key)
-                                                         type:
-                                                         aid :
-                                                         channelNumber : ]
-                                                 [fffff: // 'token' 3 (key)
-                                                         type:
-                                                         aid :
-                                                         channelNumber :]
-                                               }
-                            ]
-                          } // End of 'sessions'
+               target         : msg.target
+               readerTypes    : [] // 'uicc','eSE'
+               sessions       : { [11111 : // sessionId 1 (key)
+                                          type :
+                                          channels : { [aaaaa: // 'token' 1 (key)
+                                                               type:
+                                                                aid :
+                                                                channelNumber : ]
+                                                        [bbbbb: // 'token' 2 (key)
+                                                                type:
+                                                                aid :
+                                                                channelNumber : ]
+                                                        [ccccc: // 'token' 3 (key)
+                                                                type:
+                                                                aid :
+                                                                channelNumber :]
+                                                     }
+                                  ]
+                                  [22222 : // sessionId 2 (key)
+                                          type :
+                                          channels : { [ddddd: // 'token' 1 (key)
+                                                              type:
+                                                              aid :
+                                                              channelNumber :]
+                                                        [eeeee: // 'token' 2 (key)
+                                                               type:
+                                                               aid :
+                                                               channelNumber : ]
+                                                         [fffff: // 'token' 3 (key)
+                                                               type:
+                                                               aid :
+                                                               channelNumber :]
+                                                      }
+                                  ]
+                                } // End of 'sessions'
        ]
        [ appId : // appId 2 (key)
+                 ...
                  ...
                  ... : { [..... :
                                  ..
@@ -216,29 +219,30 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
     iccProvider.unregisterIccMsg(PREFERRED_UICC_CLIENTID, this);
   },
 
-  _registerMessageTarget: function(message) {
+  _registerSETarget: function(message, readers) {
     let appInfoMap = this.appInfoMap;
     let appId = message.json.appId;
     let targetInfo = appInfoMap[appId];
 
     // If the application Id is already registered
     if (targetInfo) {
-      debug("Already registered target! " + appId);
+      debug("Already registered SE target! " + appId);
       return;
     }
     let newAppInfo = { target: message.target,
+                       readerTypes: readers,
                        sessions: {} };
     appInfoMap[appId] = newAppInfo;
-    if (DEBUG) debug("Registering a new target " + appId);
+    if (DEBUG) debug("Registering a new SE target " + appId);
   },
 
-  _unregisterMessageTarget: function(message) {
+  _unregisterSETarget: function(message) {
     let targets = this.appInfoMap;
     Object.keys(targets).forEach((appId) => {
       let targetInfo = targets[appId];
       if (targetInfo && targetInfo.target === message.target) {
         // Remove the target from the list of registered targets
-        debug("Unregisterd MessageTarget for AppId : " + appId);
+        debug("Unregisterd SE Target for AppId : " + appId);
         this._closeAllChannelsByAppId(targets[appId], function(status) {
           if (status === SE.ERROR_GENERIC_FAILURE)
             debug("Err: Memory Leak? - Unable to close the channel held by \
@@ -432,6 +436,20 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
 
   _isRegisteredForGivenType: function(type, data) {
     return (this._getType(data) === type);
+  },
+
+  _checkSEState: function(data) {
+    let types = this.appInfoMap[data.appId].readerTypes;
+    if (types.indexOf(data.readerType) > -1) {
+      switch (data.readerType) {
+        case SE.TYPE_UICC:
+          return this._isUiccInReadyState();
+        default:
+          if (DEBUG) debug('Unsupported readerType ' + data.type + ' for appId ' + data.appId);
+          break;
+      }
+    }
+    return false;
   },
 
   _validateAID: function(aid, data) {
@@ -771,18 +789,6 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
     }
   },
 
-  _notifyAllTargetsOnSEStateChange: function(type, isPresent) {
-    let targets = this.appInfoMap;
-    Object.keys(targets).forEach((aKey) => {
-      let targetInfo = targets[aKey];
-      if (targetInfo) {
-        targetInfo.target.sendAsyncMessage("SE:NotifySEStateChange", {
-                                            type: type,
-                                            present: isPresent });
-      }
-    });
-  },
-
   _isUiccInReadyState: function() {
     // Consider following Card states as not quite ready for issuing IccChannel* related commands
     let notReadyStates = [
@@ -793,6 +799,14 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
     ];
     let cardState = iccProvider.getCardState(PREFERRED_UICC_CLIENTID);
     return (((cardState !== null) && (notReadyStates.indexOf(cardState) == -1)) ? true : false);
+  },
+
+  _checkAndRetrieveAvailableReaders: function() {
+    let readers = [];
+    if (this.cardReady) {
+      readers.push(SE.TYPE_UICC);
+    }
+    return readers;
   },
 
   _hexStringToBytes: function(hexString) {
@@ -841,7 +855,7 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
       // By the time we receive child-process-shutdown, the child process has
       // already forgotten its permissions so we need to unregister the target
       // for every permission.
-      this._unregisterMessageTarget(msg);
+      this._unregisterSETarget(msg);
       return null;
     }
 
@@ -863,11 +877,10 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
 
     switch (msg.name) {
       case "SE:GetSEReaders":
-        let secureelements = [];
-        if (this.cardReady) {
-          this._registerMessageTarget(msg);
-          secureelements.push(SE.TYPE_UICC);
-          options = { secureelements: secureelements,
+        let seReaders = this._checkAndRetrieveAvailableReaders();
+        if (seReaders.length > 0) {
+          this._registerSETarget(msg, seReaders);
+          options = { readers: seReaders,
                       resolverId: msg.json.resolverId };
           promiseStatus = "Resolved";
         }
@@ -933,7 +946,10 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
         });
         // Send the response from the callback, for now return!
         return;
-      case "SE:GetType":
+      case "SE:CheckSEState":
+        return this._checkSEState(msg.json);
+        break;
+      case "SE:GetChannelType":
         return this._getChannelType(msg.json);
       default:
         throw new Error("Don't know about this message: " + msg.name);
@@ -963,8 +979,7 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
 
    notifyCardStateChanged: function() {
      this.cardReady = this._isUiccInReadyState();
-     this._notifyAllTargetsOnSEStateChange("uicc", this.cardReady);
-     if (DEBUG) debug("CardStateChanged, " + "CardReady : " + this.cardReady);
+     if (DEBUG) debug("CardStateChanged - " + "CardReady ? " + this.cardReady);
    },
 
    notifyIccInfoChanged: function() {}

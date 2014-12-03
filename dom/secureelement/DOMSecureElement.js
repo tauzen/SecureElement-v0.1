@@ -29,11 +29,11 @@ XPCOMUtils.defineLazyServiceGetter(this, "iccProvider",
                    "@mozilla.org/ril/content-helper;1",
                    "nsIIccProvider");
 
-const SE_TYPE_SIM = 0x00;
-const SE_TYPE_ESE  = 0x01;
-
-// According GPCardSpec 2.2.xx
-const SE_MAX_APDU_LEN = 255; // including APDU header
+XPCOMUtils.defineLazyGetter(this, "SE", function() {
+  let obj = {};
+  Cu.import("resource://gre/modules/se_consts.js", obj);
+  return obj;
+});
 
 /*
  * Helper object that maintains sessionObj and its corresponding channelObj for a given SE type
@@ -285,7 +285,7 @@ SEChannel.prototype = {
       apduFieldsLen++; // Le
     }
 
-    if ((apduFieldsLen + dataLen) > SE_MAX_APDU_LEN) {
+    if ((apduFieldsLen + dataLen) > SE.MAX_APDU_LEN) {
       throw new Error("Data length exceeds max limit - 255. Extended APDU is not supported!");
     }
 
@@ -298,7 +298,7 @@ SEChannel.prototype = {
       let index = 0;
       // TBD: Extended APDU support is not supported for now
       apduCommand[offset++] = dataLen & 0xFF;
-      while(offset < SE_MAX_APDU_LEN && index < dataLen) {
+      while(offset < SE.MAX_APDU_LEN && index < dataLen) {
         apduCommand[offset++] = command.data[index++];
       }
     }
@@ -344,7 +344,7 @@ SEChannel.prototype = {
                    sessionId: this._sessionId,
                    appId: this._window.document.nodePrincipal.appId
                  };
-    let type = cpmm.sendSyncMessage("SE:GetType", params);
+    let type = cpmm.sendSyncMessage("SE:GetChannelType", params);
     // The array values must match the enum value of 'SEChannelType' specified in webidl.
     return ['basic','logical'][type];
   }
@@ -369,8 +369,8 @@ SESession.prototype = {
   QueryInterface: XPCOMUtils.generateQI([]),
 
   openBasicChannel: function(aid) {
-    if (this.reader.type === 'uicc')
-      throw new Error("OpenBasicChannel() is not allowed for SE type : 'uicc'" );
+    if (this.reader.type === SE.TYPE_UICC)
+      throw new Error("OpenBasicChannel() is not allowed for SE type : " + SE.TYPE_UICC);
   },
 
   openLogicalChannel: function(aid) {
@@ -378,7 +378,7 @@ SESession.prototype = {
       throw new Error("Open channel without select AID is not supported by UICC !!!");
     }
 
-    if (aid.length < 5 || aid.length > 16) {
+    if (aid.length < SE.MIN_AID_LEN || aid.length > SE.MAX_AID_LEN) {
       throw new Error("Invalid AID length");
     }
     this._aid = Cu.waiveXrays(aid);
@@ -421,7 +421,6 @@ SESession.prototype = {
 function SEReader(win, aType) {
   this._window = win;
   this.type    = aType;
-  this.isSEPresent = true;
 }
 
 SEReader.prototype = {
@@ -451,6 +450,14 @@ SEReader.prototype = {
                    };
       cpmm.sendAsyncMessage("SE:CloseAllByReader", params);
     });
+  },
+
+  get isSEPresent() {
+    let params = {
+                   readerType: this.type,
+                   appId: this._window.document.nodePrincipal.appId
+                 };
+    return cpmm.sendSyncMessage("SE:CheckSEState", params);
   }
 };
 
@@ -502,8 +509,7 @@ SEManager.prototype = {
                       "SE:CloseChannelRejected",
                       "SE:TransmitAPDURejected",
                       "SE:CloseAllByReaderRejected",
-                      "SE:CloseAllBySessionRejected",
-                      "SE:NotifySEStateChange"];
+                      "SE:CloseAllBySessionRejected"];
 
     this.initDOMRequestHelper(win, messages);
   },
@@ -547,15 +553,15 @@ SEManager.prototype = {
 
     switch (aMessage.name) {
       case "SE:GetSEReadersResolved":
-        let readers = this._window.Array();
-        if(data.secureelements[0] === 'uicc') {
-          let chromeObj = new SEReader(this._window, 'uicc');
+        let availableReaders = this._window.Array();
+        if (data.readers.indexOf(SE.TYPE_UICC) > -1) {
+          let chromeObj = new SEReader(this._window, SE.TYPE_UICC);
           let contentObj = this._window.SEReader._create(this._window, chromeObj);
-          readers.push(contentObj);
+          availableReaders.push(contentObj);
         }
         // Update 'readers'
-        SEStateHelper.addReaderObjs(readers);
-        resolver.resolve(readers);
+        SEStateHelper.addReaderObjs(availableReaders);
+        resolver.resolve(availableReaders);
         break;
       case "SE:OpenSessionResolved":
         chromeObj = new SESession(this._window, SEStateHelper.getReaderObjByType(data.type), data.sessionId);
@@ -611,11 +617,6 @@ SEManager.prototype = {
       case "SE:CloseAllBySessionRejected":
         debug("TBD: Handle Rejected scenarios " + aMessage.name);
         resolver.reject();
-        break;
-      case "SE:NotifySEStateChange":
-        let reader = SEStateHelper.getReaderObjByType(data.type);
-        if (reader)
-          reader.isSEPresent = data.isPresent;
         break;
       default:
         debug("Could not find a handler for " + aMessage.name);
