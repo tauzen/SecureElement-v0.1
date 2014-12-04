@@ -329,8 +329,8 @@ SEChannel.prototype = {
     return PromiseHelpers._createPromise((aResolverId) => {
       let params = {
                      resolverId: aResolverId,
-                     aid: this._aid,
                      channelToken: this._channelToken,
+                     aid: this._aid,
                      sessionId: this._sessionId,
                      appId: this._window.document.nodePrincipal.appId
                    };
@@ -454,7 +454,7 @@ SEReader.prototype = {
 
   get isSEPresent() {
     let params = {
-                   readerType: this.type,
+                   type: this.type,
                    appId: this._window.document.nodePrincipal.appId
                  };
     return cpmm.sendSyncMessage("SE:CheckSEState", params);

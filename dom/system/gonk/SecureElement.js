@@ -440,8 +440,8 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
 
   _checkSEState: function(data) {
     let types = this.appInfoMap[data.appId].readerTypes;
-    if (types.indexOf(data.readerType) > -1) {
-      switch (data.readerType) {
+    if (types.indexOf(data.type) > -1) {
+      switch (data.type) {
         case SE.TYPE_UICC:
           return this._isUiccInReadyState();
         default:
@@ -809,6 +809,10 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
     return readers;
   },
 
+  _canOpenSession: function(data) {
+    return this._checkSEState(data);
+  },
+
   _hexStringToBytes: function(hexString) {
     let bytes = [];
     let length = hexString.length;
@@ -886,7 +890,7 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
         }
         break;
       case "SE:OpenSession":
-        if ((this.cardReady) && (msg.json.type === SE.TYPE_UICC)) {
+        if (this._canOpenSession(msg.json)) {
           let sessionId = UUIDGenerator.generateUUID().toString();
           this._addSession(sessionId, msg.json);
           options = { sessionId: sessionId,
