@@ -248,22 +248,21 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
         if (DEBUG) debug("Unregisterd SE Target for AppId : " + appId);
         this._closeAllChannelsByAppId(appId, function(status) {
           if (status === SE.ERROR_GENERIC_FAILURE)
-            debug("Err: Memory Leak? - Unable to close the channel held by \
-                   the AppId : " + appId);
+            debug("Err: Memory Leak? - Unable to CloseAll channels for AppId : " + appId);
           delete targets[appId];
         });
       }
     }
   },
 
-   _removeAllSessions: function(msg) {
+  _removeAllSessions: function(msg) {
     let allSessions = this.appInfoMap[msg.appId].sessions;
     // reset all sessions
-    if (!!allSessions)
+    if (allSessions)
       allSessions = {};
   },
 
-   _addSession: function(sessionId, msg) {
+  _addSession: function(sessionId, msg) {
     let appId = msg.appId;
     let type = msg.type;
 
@@ -276,9 +275,9 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
                                     channels: {} };
   },
 
-  _removeSessionEntry: function(msg) {
+  _removeSession: function(msg) {
     let sessions = this.appInfoMap[msg.appId].sessions;
-    if (!!sessions && sessions[msg.sessionId].type === msg.type)
+    if (sessions && sessions[msg.sessionId].type === msg.type)
       delete sessions[msg.sessionId];
   },
 
@@ -356,7 +355,8 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
           debug("                          token key : " + token);
           debug("                                    Type : " + channels[token].type);
           debug("                                    channelNumber : " + channels[token].channel);
-          debug("                                    AID : " + this._byteTohexString(channels[token].aid));
+          debug("                                    AID : " +
+                                                      this._byteTohexString(channels[token].aid));
         }); // End of Channels keys
       }); // End of Sessions keys
     }); // End of AppId keys
@@ -574,7 +574,8 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
       },
 
       notifyError: function(error) {
-        if (callback) callback({ status: SE.ERROR_GENERIC_FAILURE, error: error, openResponse: [] });
+        if (callback) callback({ status: SE.ERROR_GENERIC_FAILURE,
+                                 error: error, openResponse: [] });
       }
     });
   },
@@ -666,13 +667,14 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
     let channel = this._getChannelNumber(apduCmd[0] & 0xFF);
     if (DEBUG) debug("transmit on Channel # " + channel);
 
-    // We pass empty result '[]' as args as we are not interested in appended responses yet!
+    // Pass empty response '[]' as args as we are not interested in appended responses yet!
     this._doIccExchangeAPDU(PREFERRED_UICC_CLIENTID, channel,
                             cla, ins, p1, p2, p3, data, [], callback);
 
   },
 
-  _doIccExchangeAPDU: function(clientId, channel, cla, ins, p1, p2, p3, data, appendResponse, callback) {
+  _doIccExchangeAPDU: function(clientId, channel, cla, ins, p1, p2,
+                               p3, data, appendResponse, callback) {
     let response = [];
     let self = this;
 
@@ -698,7 +700,7 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
           // and repeat the procedure. i,e; '_doIccExchangeAPDU(...)'.
           if (DEBUG) debug("Enforce '0x6C' Procedure with sw2 : " + sw2);
 
-          // Recursive! and We pass empty result '[]' as args, since '0x6C' procedure
+          // Recursive! and Pass empty response '[]' as args, since '0x6C' procedure
           // does not have to deal with appended responses.
           self._doIccExchangeAPDU(PREFERRED_UICC_CLIENTID, channel,
                                   cla, ins, p1, p2, sw2, data, [], callback);
@@ -870,7 +872,7 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
     let message = msg;
     let promiseStatus = "Rejected";
     let options = msg.json ? { status: status,
-                               resolverId: msg.json.resolverId } : { status: status } ;
+                               resolverId: msg.json.resolverId } : { status: status };
 
     if (msg.name == "child-process-shutdown") {
       // By the time we receive child-process-shutdown, the child process has
@@ -950,7 +952,7 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
       case "SE:CloseAllBySession":
         this._closeAllChannelsBySessionId(msg.json.sessionId, msg.json.appId, function(status) {
           promiseStatus = (status === SE.ERROR_SUCCESS) ? "Resolved" : "Rejected";
-          gSEMessageManager._removeSessionEntry(message.json);
+          gSEMessageManager._removeSession(message.json);
           options = { sessionId: message.json.sessionId,
                       resolverId: message.json.resolverId };
           message.target.sendAsyncMessage(message.name + promiseStatus, options);

@@ -152,7 +152,7 @@ interface SECommand {
   attribute octet                           ins;    // 1 Byte  : Instruction Byte
   attribute octet                           p1;     // 1 Byte  : First Octet of Parameters Byte
   attribute octet                           p2;     // 1 Byte  : Second Octet of Parameters Byte
-  [Cached, Pure] attribute sequence<octet>?  data;   // Sequence of octets
+  [Cached, Pure] attribute sequence<octet>? data;   // Sequence of octets
   attribute short                           le;     // The length of the expected
                                                     // response data or -1 if none is expected
 };
