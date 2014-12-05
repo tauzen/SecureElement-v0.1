@@ -123,33 +123,33 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
      { [ appId :// appId 1 (key)
                target         : msg.target
                readerTypes    : [] // 'uicc','eSE'
-               sessions       : { [11111 : // sessionId 1 (key)
+               sessions       : { [11111 : // sessionId (Key 1)
                                           type :
-                                          channels : { [aaaaa: // 'token' 1 (key)
+                                          channels : { [aaaaa: // 'token' (key 1)
                                                                type:
                                                                 aid :
                                                                 channelNumber : ]
-                                                        [bbbbb: // 'token' 2 (key)
+                                                        [bbbbb: // 'token' (key 2 )
                                                                 type:
                                                                 aid :
                                                                 channelNumber : ]
-                                                        [ccccc: // 'token' 3 (key)
+                                                        [ccccc: // 'token' (key 3)
                                                                 type:
                                                                 aid :
                                                                 channelNumber :]
                                                      }
                                   ]
-                                  [22222 : // sessionId 2 (key)
+                                  [22222 : // sessionId (key 2)
                                           type :
-                                          channels : { [ddddd: // 'token' 1 (key)
+                                          channels : { [ddddd: // 'token' (key 1)
                                                               type:
                                                               aid :
                                                               channelNumber :]
-                                                        [eeeee: // 'token' 2 (key)
+                                                        [eeeee: // 'token' (key 2 )
                                                                type:
                                                                aid :
                                                                channelNumber : ]
-                                                         [fffff: // 'token' 3 (key)
+                                                         [fffff: // 'token' (key 3)
                                                                type:
                                                                aid :
                                                                channelNumber :]
@@ -238,20 +238,22 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
 
   _unregisterSETarget: function(message) {
     let targets = this.appInfoMap;
-    Object.keys(targets).forEach((appId) => {
+    let appIdKeys = Object.keys(targets);
+
+    for (let i = 0; i < appIdKeys.length; i++) {
+      let appId = appIdKeys[i];
       let targetInfo = targets[appId];
       if (targetInfo && targetInfo.target === message.target) {
         // Remove the target from the list of registered targets
-        debug("Unregisterd SE Target for AppId : " + appId);
-        this._closeAllChannelsByAppId(targets[appId], function(status) {
+        if (DEBUG) debug("Unregisterd SE Target for AppId : " + appId);
+        this._closeAllChannelsByAppId(appId, function(status) {
           if (status === SE.ERROR_GENERIC_FAILURE)
             debug("Err: Memory Leak? - Unable to close the channel held by \
                    the AppId : " + appId);
           delete targets[appId];
         });
-        return;
       }
-    });
+    }
   },
 
    _removeAllSessions: function(msg) {
@@ -267,7 +269,7 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
 
     let appInfo = this.appInfoMap[appId];
     if (!appInfo) {
-      if (DEBUG) debug("Unable to add session to the target: " + appId);
+      debug("Unable to add session: " + appId);
       return;
     }
     appInfo.sessions[sessionId] = { type: type,
@@ -287,12 +289,12 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
 
     let appInfo = this.appInfoMap[appId];
     if (!appInfo) {
-      debug("Unable to add session to the target: " + appId);
+      debug("Unable to add channel: " + appId);
       return status;
     }
     let session = appInfo.sessions[msg.sessionId];
     if (!session) {
-      debug("Unable to add session " + msg.sessionId + "appId:" + appId);
+      debug("Unable to add channel: Inavlid session, " + msg.sessionId + " appId:" + appId);
       return status;
     }
 
@@ -301,11 +303,11 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
     if (!channel && (session.type === msg.type)) {
       // Add the entry
       session.channels[token] = { type: channelInfo.type,
-                                  channel: channelInfo.channel,
-                                  aid: msg.aid };
+                                  aid: msg.aid,
+                                  channel: channelInfo.channel };
       return SE.ERROR_SUCCESS;
     }
-    if (DEBUG) debug("Unable to add channel entry , Type Mismatch - " + session.type + " Vs " +
+    if (DEBUG) debug("Unable to add channel: Type Mismatch - " + session.type + " Vs " +
                      msg.type + " (or) Channel already added:" + channel + " " +
                      session.channels[token].channel);
     return status;
@@ -331,25 +333,30 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
     }); // End of AppId keys
   },
 
-  /*
-   // Uncomment this function in order to debug the appInfoMap
-  _debugMap: function(evtStr) {
+  /* // Uncomment this function in order to debug the appInfoMap
+  _debugMap: function(eventDesc) {
     debug("----------------------------------------------------------------------------------------");
-    debug(evtStr);
+    debug(eventDesc);
     let targets = this.appInfoMap;
     Object.keys(targets).forEach((appId) => {
       debug("appId : " + appId);
       debug("       target : " + targets[appId].target);
+      let readerTypes = '';
+      for (let index = 0; targets[appId].readerTypes &&
+             (index < targets[appId].readerTypes.length); index++) {
+        readerTypes += targets[appId].readerTypes[index] + ' ';
+      }
+      debug("       readerTypes : " + readerTypes);
       let sessions = targets[appId].sessions;
       Object.keys(sessions).forEach((sessionId) => {
-        debug("               sessions : " + sessionId);
-        debug("                         type : " + sessions[sessionId].type);
+        debug("       sessionId key : " + sessionId);
+        debug("                      type : " + sessions[sessionId].type);
         let channels = sessions[sessionId].channels;
         Object.keys(channels).forEach((token) => {
-          debug("                               channels : " + token);
-          debug("                                         Type : " + channels[token].type));
-          debug("                                         channelNumber : " + channels[token].channel);
-          debug("                                         AID : " + this._byteTohexString(channels[token].aid));
+          debug("                          token key : " + token);
+          debug("                                    Type : " + channels[token].type);
+          debug("                                    channelNumber : " + channels[token].channel);
+          debug("                                    AID : " + this._byteTohexString(channels[token].aid));
         }); // End of Channels keys
       }); // End of Sessions keys
     }); // End of AppId keys
@@ -375,25 +382,29 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
 
   _getAllChannelsByAppId: function(appId) {
     let appInfo = this.appInfoMap[appId];
+     debug(' In getAllChannelsByAppId ' + appId);
     if (!appInfo) {
-      debug("Unable to add session to the target: " + appId);
+      debug("Unable to get all channels : " + appId);
       return null;
     }
-    let sessions = appInfo.sessions;
     let channelNumbers = new Array();
-    Object.keys(sessions).forEach((aKey) => {
+    let sessions = appInfo.sessions;
+    let sessionKeys = Object.keys(sessions);
+    for (let i = 0; i < sessionKeys.length; i++) {
+      let aKey = sessionKeys[i];
       let channels = sessions[aKey].channels;
-      if (channels !== undefined) {
+      if (channels) {
         channelNumbers = channelNumbers.concat(this._getChannels(channels));
+        debug(' channelNumbers length ' + channelNumbers.length);
       }
-    });
+    }
     return (channelNumbers.length > 0) ? channelNumbers : null;
   },
 
   _getChannelCountBySessionId: function(sessionId, appId) {
     let session = this.appInfoMap[appId].sessions[sessionId];
     if (!session) {
-      debug("Unable to get session for the target appId : " + appId + " sessionId: " + sessionId);
+      debug("Unable to get channel count : " + appId + " sessionId: " + sessionId);
       return null;
     }
     return Object.keys(session.channels).length;
@@ -402,7 +413,7 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
   _getAllChannelsBySessionId: function(sessionId, appId) {
     let sessions = this.appInfoMap[appId].sessions[sessionId];
     if (!sessions) {
-      debug("Unable to get session for the target appId : " + appId + " sessionId: " + sessionId);
+      debug("Unable to get all channels : " + appId + " sessionId: " + sessionId);
       return null;
     }
     return this._getChannels(sessions.channels);
@@ -413,12 +424,11 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
       return null;
 
     let channelNumbers = new Array();
-    Object.keys(channels).forEach((aKey) => {
-      let channelNumber = channels[aKey].channelNumber;
-      if (channelNumber !== undefined) {
-        channelNumbers.push(channelNumber);
-      }
-    });
+    let channelKeys = Object.keys(channels);
+    for (let i = 0; i < channelKeys.length; i++) {
+      let channelNumber = channels[channelKeys[i]].channel;
+      channelNumbers.push(channelNumber);
+    }
     return (channelNumbers.length > 0) ? channelNumbers : null;
   },
 
@@ -512,7 +522,14 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
         break;
       }
 
-      if (msg.aid.length < SE.MIN_AID_LEN || msg.aid.length > SE.MAX_AID_LEN) {
+      if (!msg.aid || msg.aid.length === 0) {
+        if (msg.type === SE.TYPE_UICC) {
+          debug('AID is null for SE type: ' + SE.TYPE_UICC);
+          // According to SIMalliance_OpenMobileAPI v3 draft, it is recommended not to support it
+          error = "AID should not be null for 'uicc'";
+          break;
+        }
+      } else if (msg.aid.length < SE.MIN_AID_LEN || msg.aid.length > SE.MAX_AID_LEN) {
         error = "Invalid AID length";
         break;
       }
@@ -665,7 +682,7 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
 
         if (DEBUG) debug("sw1 : " + sw1 + ", sw2 : " + sw2 +
                          ", simResponse : " + self._byteTohexString(simResponse));
-        // Append the response
+        // Copy the response
         response = (simResponse && simResponse.length > 0) ?
                    appendResponse.concat(simResponse) : appendResponse;
 
@@ -852,8 +869,8 @@ XPCOMUtils.defineLazyGetter(this, "gSEMessageManager", function() {
     let status = SE.ERROR_GENERIC_FAILURE;
     let message = msg;
     let promiseStatus = "Rejected";
-    let options = { status: status,
-                    resolverId: msg.json.resolverId };
+    let options = msg.json ? { status: status,
+                               resolverId: msg.json.resolverId } : { status: status } ;
 
     if (msg.name == "child-process-shutdown") {
       // By the time we receive child-process-shutdown, the child process has

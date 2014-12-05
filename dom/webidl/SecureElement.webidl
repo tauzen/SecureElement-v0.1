@@ -77,7 +77,7 @@ interface SESession {
    * @return If the operation is successful the promise is resolved with an instance of SEChannel.
    */
   [Throws]
-  Promise<SEChannel> openLogicalChannel(Uint8Array aid);
+  Promise<SEChannel> openLogicalChannel(Uint8Array? aid);
 
   /**
    * Opens a basic channel to an application on Secure Element. Once the channel has been opened by the application,

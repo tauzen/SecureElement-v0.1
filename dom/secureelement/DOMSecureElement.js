@@ -47,17 +47,17 @@ let SEStateHelper = {
      { ['uicc' :
                  reader : readerObj1
                  sessions :
-                           { [xxxxx : // 'session' 1 (key)
-                                     channels : { [aaaaa: // 'token' 1 (key)
+                           { [xxxxx : // 'sessionId'
+                                     channels : { [aaaaa: // 'channelToken' 1 (key 1)
                                                            channelObj 1 ]
-                                                  [bbbbb: // 'token' 2 (key)
+                                                  [bbbbb: // 'channelToken' 2 (key 2)
                                                            channelObj 2 ]
                                                 }
                              ]
-                             [yyyyy : // 'session' 2 (key)
-                                     channels : { [aaaaa: // 'token' 3 (key)
+                             [yyyyy : // 'sessionId'
+                                     channels : { [aaaaa: // 'channelToken' 3 (key 1)
                                                            channelObj 3 ]
-                                                  [bbbbb: // 'token' 4 (key)
+                                                  [bbbbb: // 'channelToken' 4 (key 2)
                                                            channelObj 4 ]
                                                 }
                              ]
@@ -91,7 +91,7 @@ let SEStateHelper = {
   deleteReaderObjByType(type) {
     let sessions = this._stateInfoMap[type].sessions;
     Object.keys(sessions).forEach((sessionId) => {
-      if (sessions[sessionId] !== undefined)
+      if (sessions[sessionId])
         delete this.deleteSessionObjById(sessionId);
     });
   },
@@ -105,7 +105,7 @@ let SEStateHelper = {
     let sessionObj = null;
     Object.keys(this._stateInfoMap).forEach((aType) => {
       let sessions = this._stateInfoMap[aType].sessions;
-      if (sessions[sessionId] !== undefined)
+      if (sessions[sessionId])
         sessionObj = sessions[sessionId].session;
        return;
     });
@@ -115,12 +115,11 @@ let SEStateHelper = {
   deleteSessionObjById(sessionId) {
     Object.keys(this._stateInfoMap).forEach((aType) => {
       let sessions = this._stateInfoMap[aType].sessions;
-      if (sessions[sessionId] !== undefined) {
+      if (sessions[sessionId]) {
         let channels = sessions[sessionId].channels;
         Object.keys(channels).forEach((aToken) => {
           this.deleteChannelObjByToken(sessionId, aToken);
         });
-        // TBD: Check if there is a race condition here!
         sessions[sessionId].session.isClosed = true;
         delete sessions[sessionId].session;
       }
@@ -130,7 +129,7 @@ let SEStateHelper = {
   addChannelObj(channelObj, sessionId, channelToken) {
     Object.keys(this._stateInfoMap).forEach((aType) => {
       let sessions = this._stateInfoMap[aType].sessions;
-      if (sessions[sessionId] !== undefined) {
+      if (sessions[sessionId]) {
         sessions[sessionId].channels[channelToken] = channelObj;
       }
     });
@@ -142,7 +141,7 @@ let SEStateHelper = {
       let sessions = this._stateInfoMap[aType].sessions;
       Object.keys(sessions).forEach((sessionId) =>  {
         let channels = sessions[sessionId].channels;
-        if (channels[channelToken] !== undefined) {
+        if (channels[channelToken]) {
           channelObj = channels[channelToken];
           return;
         }
@@ -212,8 +211,7 @@ SECommand.prototype = {
  * ==============================================
  */
 
-function SEResponse(win, respApdu, channelObj) {
-  this._window = win;
+function SEResponse(respApdu, channelObj) {
   this.sw1 = 0x00;
   this.sw2 = 0x00;
   this.data = null;
@@ -243,20 +241,28 @@ SEResponse.prototype = {
  * ==============================================
  */
 
-function SEChannel(win, aid, channelToken, sessionObj, openResponse, sessionId) {
-  this._window       = win;
-  this._aid          = aid;
-  this._channelToken = channelToken;
-  this._sessionId    = sessionId;
-  this.session       = sessionObj;
-  this.openResponse = Cu.cloneInto(new Uint8Array(openResponse), win);
+function SEChannel(aChannelInfo) {
+  this._aid          = aChannelInfo.aid;
+  this._channelToken = aChannelInfo.token;
+  this._sessionId    = aChannelInfo.sessionId;
+  this.session       = null;
+  this.openResponse  = null;
   this.isClosed      = false;
 }
 
 SEChannel.prototype = {
+  _window: null,
+
   classID: Components.ID("{181ebcf4-5164-4e28-99f2-877ec6fa83b9}"),
   contractID: "@mozilla.org/secureelement/SEChannel;1",
   QueryInterface: XPCOMUtils.generateQI([]),
+
+  initialize: function ic_initialize(win, openResponse) {
+    this._window = win;
+    this.openResponse = Cu.cloneInto(new Uint8Array(openResponse), win);
+    // Update 'session' obj
+    this.session = SEStateHelper.getSessionObjById(this._sessionId);
+  },
 
   transmit: function(command) {
     if (command == null) {
@@ -356,17 +362,22 @@ SEChannel.prototype = {
  * ==============================================
  */
 
-function SESession(win, readerObj, sessionId) {
-  this._window       = win;
-  this._sessionId    = sessionId;
-  this.reader        = readerObj;
+function SESession(aSessionInfo) {
+  this._sessionId    = aSessionInfo.sessionId;
+  this.reader        = SEStateHelper.getReaderObjByType(aSessionInfo.type);
   this.isClosed      = false;
 }
 
 SESession.prototype = {
+  _window: null,
+
   classID: Components.ID("{2b1809f8-17bd-4947-abd7-bdef1498561c}"),
   contractID: "@mozilla.org/secureelement/SESession;1",
   QueryInterface: XPCOMUtils.generateQI([]),
+
+  initialize: function ic_initialize(win) {
+    this._window = win;
+  },
 
   openBasicChannel: function(aid) {
     if (this.reader.type === SE.TYPE_UICC)
@@ -374,15 +385,23 @@ SESession.prototype = {
   },
 
   openLogicalChannel: function(aid) {
-    if(!aid) {
-      throw new Error("Open channel without select AID is not supported by UICC !!!");
+
+    // According to SIMalliance_OpenMobileAPI v3 draft:
+    // In case of UICC it is recommended to reject the opening of the logical
+    // channel without a specific AID, by always answering null to such a request.
+    if(!aid || aid.length === 0) {
+      if (this.reader.type === SE.TYPE_UICC) {
+        return PromiseHelpers._createPromise(function(aResolverId) {
+          PromiseHelpers.takePromiseResolver(aResolverId).reject();
+        });
+      }
     }
 
     if (aid.length < SE.MIN_AID_LEN || aid.length > SE.MAX_AID_LEN) {
       throw new Error("Invalid AID length");
     }
+
     this._aid = Cu.waiveXrays(aid);
-    
     return PromiseHelpers._createPromise((aResolverId) => {
       let params = {
                      resolverId: aResolverId,
@@ -418,8 +437,7 @@ SESession.prototype = {
  * ==============================================
  */
 
-function SEReader(win, aType) {
-  this._window = win;
+function SEReader(aType) {
   this.type    = aType;
 }
 
@@ -429,6 +447,10 @@ SEReader.prototype = {
   classID: Components.ID("{1c7bdba3-cd35-4f8b-a546-55b3232457d5}"),
   contractID: "@mozilla.org/secureelement/SEReader;1",
   QueryInterface: XPCOMUtils.generateQI([]),
+
+  initialize: function ic_initialize(win) {
+    this._window = win;
+  },
 
   openSession: function() {
     return PromiseHelpers._createPromise((aResolverId) => {
@@ -517,7 +539,7 @@ SEManager.prototype = {
   uninit: function SEManagerUninit() {
      this.destroyDOMRequestHelper();
      SEStateHelper.stateInfoMap = {};
-     PromiseHelpersSubclass = null;
+     PromiseHelpers = null;
      this._window = null;
   },
 
@@ -555,8 +577,9 @@ SEManager.prototype = {
       case "SE:GetSEReadersResolved":
         let availableReaders = this._window.Array();
         if (data.readers.indexOf(SE.TYPE_UICC) > -1) {
-          let chromeObj = new SEReader(this._window, SE.TYPE_UICC);
-          let contentObj = this._window.SEReader._create(this._window, chromeObj);
+          chromeObj = new SEReader(SE.TYPE_UICC);
+          chromeObj.initialize(this._window);
+          contentObj = this._window.SEReader._create(this._window, chromeObj);
           availableReaders.push(contentObj);
         }
         // Update 'readers'
@@ -564,19 +587,18 @@ SEManager.prototype = {
         resolver.resolve(availableReaders);
         break;
       case "SE:OpenSessionResolved":
-        chromeObj = new SESession(this._window, SEStateHelper.getReaderObjByType(data.type), data.sessionId);
+        chromeObj = new SESession({sessionId: data.sessionId, type: data.type});
+        chromeObj.initialize(this._window);
         contentObj = this._window.SESession._create(this._window, chromeObj);
         // Update the session obj
         SEStateHelper.addSessionObj(contentObj, data.sessionId, data.type);
         resolver.resolve(contentObj);
         break;
       case "SE:OpenChannelResolved":
-        chromeObj = new SEChannel(this._window, 
-                                  data.aid, 
-                                  data.channelToken, 
-                                  SEStateHelper.getSessionObjById(data.sessionId),
-                                  data.openResponse,
-                                  data.sessionId);
+        chromeObj = new SEChannel({aid: data.aid,
+                                   token: data.channelToken,
+                                   sessionId: data.sessionId});
+        chromeObj.initialize(this._window, data.openResponse);
         contentObj = this._window.SEChannel._create(this._window, chromeObj);
         // Update 'channel obj'
         SEStateHelper.addChannelObj(contentObj, data.sessionId, data.channelToken);
@@ -585,8 +607,7 @@ SEManager.prototype = {
       case "SE:TransmitAPDUResolved":
         let respApdu = data.respApdu;
         let channel = SEStateHelper.getChannelObjByToken(data.channelToken);
-        chromeObj = new SEResponse(this._window,
-                                   respApdu,
+        chromeObj = new SEResponse(respApdu,
                                    channel);
         contentObj = this._window.SEResponse._create(this._window, chromeObj);
         resolver.resolve(contentObj);
