@@ -36,7 +36,8 @@ XPCOMUtils.defineLazyGetter(this, "SE", function() {
 });
 
 /*
- * Helper object that maintains sessionObj and its corresponding channelObj for a given SE type
+ * Helper object that maintains sessionObj and its corresponding
+ * channelObj for a given SE type
  */
 let SEStateHelper = {
 
@@ -55,9 +56,9 @@ let SEStateHelper = {
                                                 }
                              ]
                              [yyyyy : // 'sessionId'
-                                     channels : { [aaaaa: // 'channelToken' 3 (key 1)
+                                     channels : { [ccccc: // 'channelToken' 3 (key 1)
                                                            channelObj 3 ]
-                                                  [bbbbb: // 'channelToken' 4 (key 2)
+                                                  [ddddd: // 'channelToken' 4 (key 2)
                                                            channelObj 4 ]
                                                 }
                              ]
@@ -83,7 +84,7 @@ let SEStateHelper = {
       this._stateInfoMap[aReaderObj.type] = sessionObj;
     }
   },
- 
+
   getReaderObjByType(type) {
     return this._stateInfoMap[type].reader;
   },
@@ -96,20 +97,18 @@ let SEStateHelper = {
     });
   },
 
-  addSessionObj(sessionObj, sessionId, type) {
-    this._stateInfoMap[type].sessions[sessionId] = { session: sessionObj,
-                                                     channels: {} };
+  addSessionObj(sessionObj, aInfo) {
+    this._stateInfoMap[aInfo.type].sessions[aInfo.sessionId] = { session: sessionObj,
+                                                                 channels: {} };
   },
 
   getSessionObjById(sessionId) {
-    let sessionObj = null;
-    Object.keys(this._stateInfoMap).forEach((aType) => {
-      let sessions = this._stateInfoMap[aType].sessions;
+    let keys = Object.keys(this._stateInfoMap);
+    for (let i = 0; i < keys.length; i++) {
+      let sessions = this._stateInfoMap[keys[i]].sessions;
       if (sessions[sessionId])
-        sessionObj = sessions[sessionId].session;
-       return;
-    });
-    return sessionObj;
+        return sessions[sessionId].session;
+    }
   },
 
   deleteSessionObjById(sessionId) {
@@ -118,43 +117,39 @@ let SEStateHelper = {
       if (sessions[sessionId]) {
         let channels = sessions[sessionId].channels;
         Object.keys(channels).forEach((aToken) => {
-          this.deleteChannelObjByToken(sessionId, aToken);
+          this.deleteChannelObjByToken(aToken, sessionId);
         });
-        sessions[sessionId].session.isClosed = true;
         delete sessions[sessionId].session;
       }
     });
   },
 
-  addChannelObj(channelObj, sessionId, channelToken) {
+  addChannelObj(channelObj, aInfo) {
     Object.keys(this._stateInfoMap).forEach((aType) => {
       let sessions = this._stateInfoMap[aType].sessions;
-      if (sessions[sessionId])
-        sessions[sessionId].channels[channelToken] = channelObj;
+      if (sessions[aInfo.sessionId])
+        sessions[aInfo.sessionId].channels[aInfo.token] = channelObj;
     });
   },
 
   getChannelObjByToken(channelToken) {
-    let channelObj = null;
-    Object.keys(this._stateInfoMap).forEach((aType) => {
-      let sessions = this._stateInfoMap[aType].sessions;
-      Object.keys(sessions).forEach((sessionId) =>  {
-        let channels = sessions[sessionId].channels;
-        if (channels[channelToken]) {
-          channelObj = channels[channelToken];
-          return;
-        }
-      });
-    });
-    return channelObj;
+    let keys = Object.keys(this._stateInfoMap);
+    for (let i = 0; i < keys.length; i++) {
+      let sessions = this._stateInfoMap[keys[i]].sessions;
+      let sessionKeys = Object.keys(sessions);
+      for (let j = 0; j < sessionKeys.length; j++) {
+        let channels = sessions[sessionKeys[j]].channels;
+        if (channels[channelToken])
+          return channels[channelToken];
+      }
+    }
   },
 
-  deleteChannelObjByToken(sessionId, channelToken) {
+  deleteChannelObjByToken(channelToken, sessionId) {
     Object.keys(this._stateInfoMap).forEach((aType) => {
       let sessions = this._stateInfoMap[aType].sessions;
-      if (sessions[sessionId] !== undefined &&
-          sessions[sessionId].channels[channelToken] !== undefined) {
-        sessions[sessionId].channels[channelToken].isClosed = true;
+      if (sessions[sessionId] &&
+          sessions[sessionId].channels[channelToken]) {
         delete sessions[sessionId].channels[channelToken];
       }
     });
@@ -165,11 +160,11 @@ function PromiseHelpersSubclass(win) {
    this._window = win;
 }
 PromiseHelpersSubclass.prototype = {
-  _window: null,
-
   __proto__: DOMRequestIpcHelper.prototype,
 
-  _createPromise: function(aCallback) {
+  _window: null,
+
+  _createSEPromise: function(aCallback) {
     return this.createPromise((aResolve, aReject) => {
       let resolverId = this.getPromiseResolverId({
         resolve: aResolve,
@@ -177,10 +172,19 @@ PromiseHelpersSubclass.prototype = {
       });
       aCallback(resolverId);
     });
+  },
+
+
+  _rejectWithSEError: function(aReason) {
+    let self = this;
+    return this._createSEPromise(function(aResolverId) {
+      if (DEBUG) debug('SEError: ' + aReason);
+      self.takePromiseResolver(aResolverId).reject(aReason);
+    });
   }
 };
 
-// Helper class to create promises
+// Helper wrapper class to do promises related chores
 let PromiseHelpers;
 
 /**
@@ -190,12 +194,12 @@ let PromiseHelpers;
  */
 function SECommand() {}
 SECommand.prototype = {
-  __init: function (cla, ins, p1, p2, data, le) {
+  __init: function(cla, ins, p1, p2, data, le) {
     this.cla = cla;
     this.ins = ins;
     this.p1 = p1;
     this.p2 = p2;
-    this.data = data
+    this.data = data;
     this.le = le;
   },
 
@@ -214,12 +218,11 @@ function SEResponse(aResponseInfo) {
   this.sw1 = 0x00;
   this.sw2 = 0x00;
   this.data = null;
-  this.status = 0;
 
   this.channel = SEStateHelper.getChannelObjByToken(aResponseInfo.token);
   let apduResponse = aResponseInfo.response;
   if (!apduResponse.simResponse || apduResponse.simResponse.length === 0) {
-    debug('APDU Response: Empty / Not Set!');
+    if (DEBUG) debug('APDU Response: Empty / Not Set!');
   } else {
     this.data = apduResponse.simResponse.slice(0, apduResponse.length);
   }
@@ -227,7 +230,6 @@ function SEResponse(aResponseInfo) {
   // Update the status bytes
   this.sw1 = apduResponse.sw1;
   this.sw2 = apduResponse.sw2;
-  this.status = (this.sw1 << 8) | this.sw2;
 }
 
 SEResponse.prototype = {
@@ -243,15 +245,16 @@ SEResponse.prototype = {
  */
 
 function SEChannel(aChannelInfo) {
-  this._aid          = aChannelInfo.aid;
+  this._aid = aChannelInfo.aid;
   this._channelToken = aChannelInfo.token;
-  this._sessionId    = aChannelInfo.sessionId;
-  this.session       = null;
-  this.openResponse  = null;
-  this.isClosed      = false;
+  this._sessionId = aChannelInfo.sessionId;
+  this.session = null;
+  this.openResponse = null;
 }
 
 SEChannel.prototype = {
+  __proto__: DOMRequestIpcHelper.prototype,
+
   _window: null,
 
   classID: Components.ID("{181ebcf4-5164-4e28-99f2-877ec6fa83b9}"),
@@ -266,18 +269,16 @@ SEChannel.prototype = {
   },
 
   transmit: function(command) {
-    if (command == null) {
-      throw new Error("Invalid APDU");
-    }
-
-    if (this.isClosed) {
-      throw new Error("Channel Already Closed!");
-    }
+    this._checkClosed();
 
     // Check for mandatory headers!
-    if ( command.cla === null || command.ins === null || command.p1 === null || command.p2 === null) {
-      throw new Error("Missing APDU Mandatory headers!");
-    }
+    if (typeof command.cla === 'undefined' ||
+        typeof command.ins === 'undefined' ||
+        typeof command.p1 === 'undefined' ||
+        typeof command.p2 === 'undefined' ||
+        !command)
+      return PromiseHelpers._rejectWithSEError('SEGenericError: ' +
+                          "Invalid APDU, Missing Mandatory headers!");
 
     let le = -1;
     let dataLen = -1;
@@ -292,9 +293,9 @@ SEChannel.prototype = {
       apduFieldsLen++; // Le
     }
 
-    if ((apduFieldsLen + dataLen) > SE.MAX_APDU_LEN) {
-      throw new Error("Data length exceeds max limit - 255. Extended APDU is not supported!");
-    }
+    if ((apduFieldsLen + dataLen) > SE.MAX_APDU_LEN)
+      return PromiseHelpers._rejectWithSEError('SEGenericError: ' +
+        "Data length exceeds max limit - 255. Extended APDU is not supported!");
 
     let apduCommand = new Uint8Array(apduFieldsLen + dataLen);
     apduCommand[offset++] = command.cla & 0xFF;
@@ -305,7 +306,7 @@ SEChannel.prototype = {
       let index = 0;
       // TBD: Extended APDU support is not supported for now
       apduCommand[offset++] = dataLen & 0xFF;
-      while(offset < SE.MAX_APDU_LEN && index < dataLen) {
+      while (offset < SE.MAX_APDU_LEN && index < dataLen) {
         apduCommand[offset++] = command.data[index++];
       }
     }
@@ -313,7 +314,7 @@ SEChannel.prototype = {
       apduCommand[offset] = command.le;
     }
 
-    return PromiseHelpers._createPromise((aResolverId) => {
+    return PromiseHelpers._createSEPromise((aResolverId) => {
       cpmm.sendAsyncMessage("SE:TransmitAPDU",
                             {
                               resolverId: aResolverId,
@@ -327,12 +328,8 @@ SEChannel.prototype = {
   },
 
   close: function() {
-    if (this.isClosed) {
-      throw new Error("Session Already Closed!");
-    }
-
-    this.isClosed = true;
-    return PromiseHelpers._createPromise((aResolverId) => {
+    this._checkClosed();
+    return PromiseHelpers._createSEPromise((aResolverId) => {
       cpmm.sendAsyncMessage("SE:CloseChannel",
                             {
                               resolverId: aResolverId,
@@ -344,6 +341,15 @@ SEChannel.prototype = {
     });
   },
 
+  get isClosed() {
+    return cpmm.sendSyncMessage("SE:CheckChannelState",
+                                {
+                                  channelToken: this._channelToken,
+                                  sessionId: this._sessionId,
+                                  appId: this._window.document.nodePrincipal.appId
+                                });
+  },
+
   get type() {
     let type = cpmm.sendSyncMessage("SE:GetChannelType",
                                     {
@@ -352,7 +358,13 @@ SEChannel.prototype = {
                                       appId: this._window.document.nodePrincipal.appId
                                     });
     // The array values must match the enum value of 'SEChannelType' specified in webidl.
-    return ['basic','logical'][type];
+    return ['basic', 'logical'][type];
+  },
+
+  _checkClosed: function() {
+    if (this.isClosed === true) {
+      throw new Error("SEBadStateError: Channel Already Closed!");
+    }
   }
 };
 
@@ -363,9 +375,8 @@ SEChannel.prototype = {
  */
 
 function SESession(aSessionInfo) {
-  this._sessionId    = aSessionInfo.sessionId;
-  this.reader        = SEStateHelper.getReaderObjByType(aSessionInfo.type);
-  this.isClosed      = false;
+  this._sessionId = aSessionInfo.sessionId;
+  this.reader = SEStateHelper.getReaderObjByType(aSessionInfo.type);
 }
 
 SESession.prototype = {
@@ -380,29 +391,28 @@ SESession.prototype = {
   },
 
   openBasicChannel: function(aid) {
-    if (this.reader.type === SE.TYPE_UICC)
-      throw new Error("OpenBasicChannel() is not allowed for SE type : " + SE.TYPE_UICC);
+    // Not Supported for now!
+    return PromiseHelpers._rejectWithSEError('SEGenericError: ' +
+      "OpenBasicChannel() is not supported for SE type : " + SE.TYPE_UICC);
   },
 
   openLogicalChannel: function(aid) {
-
+    this._checkClosed();
     // According to SIMalliance_OpenMobileAPI v3 draft:
     // In case of UICC it is recommended to reject the opening of the logical
-    // channel without a specific AID, by always answering null to such a request.
-    if(!aid || aid.length === 0) {
-      if (this.reader.type === SE.TYPE_UICC) {
-        return PromiseHelpers._createPromise(function(aResolverId) {
-          PromiseHelpers.takePromiseResolver(aResolverId).reject();
-        });
-      }
+    // channel without a specific AID.
+    if (!aid || aid.length === 0) {
+      if (this.reader.type === SE.TYPE_UICC)
+        return PromiseHelpers._rejectWithSEError('SEGenericError: ' +
+                                                  "AID is not specified!");
     }
 
-    if (aid.length < SE.MIN_AID_LEN || aid.length > SE.MAX_AID_LEN) {
-      throw new Error("Invalid AID length");
-    }
+    if (aid.length < SE.MIN_AID_LEN || aid.length > SE.MAX_AID_LEN)
+      return PromiseHelpers._rejectWithSEError('SEGenericError: ' +
+                                               "Invalid AID length - " + aid.length);
 
     this._aid = Cu.waiveXrays(aid);
-    return PromiseHelpers._createPromise((aResolverId) => {
+    return PromiseHelpers._createSEPromise((aResolverId) => {
       cpmm.sendAsyncMessage("SE:OpenChannel",
                             {
                               resolverId: aResolverId,
@@ -415,7 +425,8 @@ SESession.prototype = {
   },
 
   closeAll: function() {
-    return PromiseHelpers._createPromise((aResolverId) => {
+    this._checkClosed();
+    return PromiseHelpers._createSEPromise((aResolverId) => {
       cpmm.sendAsyncMessage("SE:CloseAllBySession",
                             {
                               resolverId: aResolverId,
@@ -425,9 +436,23 @@ SESession.prototype = {
     });
   },
 
+  get isClosed() {
+    return cpmm.sendSyncMessage("SE:CheckSessionState",
+                                {
+                                  sessionId: this._sessionId,
+                                  appId: this._window.document.nodePrincipal.appId
+                                });
+  },
+
   get atr() {
     // 'Answer to Reset' is not supported for now, return null.
     return null;
+  },
+
+  _checkClosed: function() {
+    if (this.isClosed === true) {
+      throw new Error("SEBadStateError: Session Already Closed!");
+    }
   }
 };
 
@@ -438,7 +463,7 @@ SESession.prototype = {
  */
 
 function SEReader(aType) {
-  this.type    = aType;
+  this.type = aType;
 }
 
 SEReader.prototype = {
@@ -453,7 +478,7 @@ SEReader.prototype = {
   },
 
   openSession: function() {
-    return PromiseHelpers._createPromise((aResolverId) => {
+    return PromiseHelpers._createSEPromise((aResolverId) => {
       cpmm.sendAsyncMessage("SE:OpenSession",
                             {
                               resolverId: aResolverId,
@@ -464,7 +489,7 @@ SEReader.prototype = {
   },
 
   closeAll: function() {
-    return PromiseHelpers._createPromise((aResolverId) => {
+    return PromiseHelpers._createSEPromise((aResolverId) => {
       cpmm.sendAsyncMessage("SE:CloseAllByReader",
                             {
                               resolverId: aResolverId,
@@ -551,8 +576,11 @@ SEManager.prototype = {
   },
 
   getSEReaders: function() {
-    this._ensureAccess();
-    return PromiseHelpers._createPromise((aResolverId) => {
+    if (!this._isAllowed)
+      return PromiseHelpers._rejectWithSEError('SESecurityError: ' +
+        "Security Exception! Should have 'secureelement-manage' permssion.");
+
+    return PromiseHelpers._createSEPromise((aResolverId) => {
       cpmm.sendAsyncMessage("SE:GetSEReaders",
                             {
                               resolverId: aResolverId,
@@ -565,7 +593,7 @@ SEManager.prototype = {
     let data = aMessage.json;
     let chromeObj = null;
     let contentObj = null;
-    debug("receiveMessage(): " + aMessage.name  + " " + JSON.stringify(data));
+    debug("receiveMessage(): " + aMessage.name + " " + JSON.stringify(data));
 
     let resolver = PromiseHelpers.takePromiseResolver(data.resolverId);
     if (!resolver) {
@@ -590,7 +618,8 @@ SEManager.prototype = {
         chromeObj.initialize(this._window);
         contentObj = this._window.SESession._create(this._window, chromeObj);
         // Update the session obj
-        SEStateHelper.addSessionObj(contentObj, data.sessionId, data.type);
+        SEStateHelper.addSessionObj(contentObj, { sessionId: data.sessionId,
+                                                  type: data.type });
         resolver.resolve(contentObj);
         break;
       case "SE:OpenChannelResolved":
@@ -600,7 +629,8 @@ SEManager.prototype = {
         chromeObj.initialize(this._window, data.openResponse);
         contentObj = this._window.SEChannel._create(this._window, chromeObj);
         // Update 'channel obj'
-        SEStateHelper.addChannelObj(contentObj, data.sessionId, data.channelToken);
+        SEStateHelper.addChannelObj(contentObj, { sessionId: data.sessionId,
+                                                  token: data.channelToken });
         resolver.resolve(contentObj);
         break;
       case "SE:TransmitAPDUResolved":
@@ -620,19 +650,17 @@ SEManager.prototype = {
         break;
       case "SE:CloseChannelResolved":
         // Clear the state in SEStateHelper obj
-        SEStateHelper.deleteChannelObjByToken(data.sessionId, data.channelToken);
+        SEStateHelper.deleteChannelObjByToken(data.channelToken, data.sessionId);
         resolver.resolve();
         break;
       case "SE:GetSEReadersRejected":
       case "SE:OpenSessionRejected":
-        resolver.reject();
-        break;
       case "SE:OpenChannelRejected":
       case "SE:CloseChannelRejected":
       case "SE:TransmitAPDURejected":
       case "SE:CloseAllByReaderRejected":
       case "SE:CloseAllBySessionRejected":
-        debug("TBD: Handle Rejected scenarios " + aMessage.name);
+        // TBD: Reject with the reason
         resolver.reject();
         break;
       default:

@@ -17,7 +17,7 @@ interface nsIIccListener : nsISupports
   void notifyIccInfoChanged();
 };
 
-[scriptable, uuid(1a649dd0-6a57-491d-b425-ceecea56e376)]
+[scriptable, uuid(6136acab-b50e-494a-a86d-df392a032897)]
 interface nsIIccChannelCallback : nsISupports
 {
   /**
@@ -41,15 +41,12 @@ interface nsIIccChannelCallback : nsISupports
    *        Response's First Status Byte
    * @param sw2
    *        Response's Second Status Byte
-   * @param length
-   *        Length of response's data field
    * @param data
-   *        Response's data field bytes
+   *        Response's data
    */
   void notifyExchangeAPDUResponse(in octet sw1,
                                   in octet sw2,
-                                  in unsigned long length,
-                                  [array, size_is(length)] in octet data);
+                                  in DOMString data);
 
   /**
    * Callback function to notify error

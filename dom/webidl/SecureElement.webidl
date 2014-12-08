@@ -110,7 +110,7 @@ interface SEChannel {
   readonly attribute SESession session;
 
   // response to openBasicChannel / openLogicalChannel operation
-  readonly  attribute Uint8Array? openResponse;
+  [Constant, Cached] readonly  attribute Uint8Array? openResponse;
 
   // Status of channel
   readonly attribute boolean isClosed;

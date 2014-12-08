@@ -1540,7 +1540,9 @@ RILContentHelper.prototype = {
   },
 
   _getIccChannelCallback: function(requestId) {
-    return this._iccChannelCallback[requestId];
+    let cb = this._iccChannelCallback[requestId];
+    delete this._iccChannelCallback[requestId];
+    return cb;
   },
 
   registerMobileConnectionMsg: function(clientId, listener) {
@@ -1675,17 +1677,6 @@ RILContentHelper.prototype = {
     }
 
     Services.DOMRequest.fireDetailedError(request, detailedError);
-  },
-
-  _hexStringToBytes: function(hexString) {
-    let bytes = [];
-    let length = hexString.length;
-
-    for (let i = 0; i < length; i += 2) {
-      bytes.push(Number.parseInt(hexString.substr(i, 2), 16));
-    }
-
-    return bytes;
   },
 
   receiveMessage: function(msg) {
@@ -1954,45 +1945,35 @@ RILContentHelper.prototype = {
 
   handleIccOpenChannel: function(message) {
     let requestId = message.requestId;
-    let channel   = message.channel;
-
     let callback = this._getIccChannelCallback(requestId);
-    if (callback) {
-      delete this._iccChannelCallback[requestId];
-      return !message.errorMsg ? callback.notifyOpenChannelSuccess(channel) :
-                                 callback.notifyError(message.errorMsg);
+    if (!callback) {
+      return;
     }
+
+    return !message.errorMsg ? callback.notifyOpenChannelSuccess(message.channel) :
+                               callback.notifyError(message.errorMsg);
   },
 
   handleIccCloseChannel: function(message) {
     let requestId = message.requestId;
     let callback = this._getIccChannelCallback(requestId);
-
-    if (callback) {
-      delete this._iccChannelCallback[requestId];
-      return !message.errorMsg ? callback.notifyCloseChannelSuccess() :
-                                 callback.notifyError(message.errorMsg);
+    if (!callback) {
+      return;
     }
+
+    return !message.errorMsg ? callback.notifyCloseChannelSuccess() :
+                               callback.notifyError(message.errorMsg);
   },
 
   handleIccExchangeAPDU: function(message) {
     let requestId = message.requestId;
     let callback = this._getIccChannelCallback(requestId);
-
     if (!callback) {
       return;
     }
 
-    delete this._iccChannelCallback[requestId];
-    let responseBytes = null;
-    let responseLength = 0;
-    if (message.simResponse) {
-      responseBytes = this._hexStringToBytes(message.simResponse);
-      responseLength = responseBytes.length;
-    }
-
     return !message.errorMsg ?
-           callback.notifyExchangeAPDUResponse(message.sw1, message.sw2, responseLength, responseBytes) :
+           callback.notifyExchangeAPDUResponse(message.sw1, message.sw2, message.simResponse) :
            callback.notifyError(message.errorMsg);
   },
 
