@@ -58,7 +58,7 @@ interface nsIIccChannelCallback : nsISupports
 /**
  * XPCOM component (in the content process) that provides the ICC information.
  */
-[scriptable, uuid(70f95f49-ebe3-4f9f-ab30-e9cd571706c0)]
+[scriptable, uuid(bf985ee1-14c9-43c6-a471-8ab52fb24b0d)]
 interface nsIIccProvider : nsISupports
 {
   /**
@@ -133,13 +133,20 @@ interface nsIIccProvider : nsISupports
                       in DOMString aid,
                       in nsIIccChannelCallback callback);
 
+  /**
+   * Exchange Command APDU (C-APDU) with SIM on the given logical channel.
+   * Note that 'P3' parameter could be Le/Lc depending on command APDU case.
+   * For Case 1 scenario (when only command header is present), the value
+   * of 'P3' should be set to '-1' explicitly.
+   * Refer to 3G TS 31.101 , 10.2 'Command APDU Structure' for all the cases.
+   */
   void iccExchangeAPDU(in unsigned long clientId,
                        in long channel,
                        in octet cla,
                        in octet ins,
                        in octet p1,
                        in octet p2,
-                       in unsigned long p3,
+                       in short p3,
                        in DOMString data,
                        in nsIIccChannelCallback callback);
 
