@@ -1077,8 +1077,9 @@ RILContentHelper.prototype = {
     let requestId = UUIDGenerator.generateUUID().toString();
     this._addIccChannelCallback(requestId, callback);
 
-    if (!data)
+    if (!data) {
       if (DEBUG) debug('data is not set , p3 : ' + p3);
+    }
 
     let apdu = {
       cla: cla,
