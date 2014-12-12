@@ -271,54 +271,24 @@ SEChannel.prototype = {
   transmit: function(command) {
     this._checkClosed();
 
-    // Check for mandatory headers!
-    if (typeof command.cla === 'undefined' ||
-        typeof command.ins === 'undefined' ||
-        typeof command.p1 === 'undefined' ||
-        typeof command.p2 === 'undefined' ||
-        !command)
+    let dataLen = (!command.data) ? 0 : command.data.length;
+    if ((SE.APDU_HEADER_LEN + dataLen) > SE.MAX_APDU_LEN)
       return PromiseHelpers._rejectWithSEError('SEGenericError: ' +
-                          "Invalid APDU, Missing Mandatory headers!");
+        "Command length exceeds max limit - 255. Extended APDU is not supported!");
 
-    let le = -1;
-    let dataLen = -1;
-    let offset = 0;
-    let apduFieldsLen = 4; // (CLA + INS + P1 + P2)
-    dataLen = !command.data ? 0 : command.data.length;
-    if (dataLen > 0) {
-      apduFieldsLen++; // Lc
-    }
-    if (command.le !== -1) {
-      le = command.le;
-      apduFieldsLen++; // Le
-    }
-
-    if ((apduFieldsLen + dataLen) > SE.MAX_APDU_LEN)
-      return PromiseHelpers._rejectWithSEError('SEGenericError: ' +
-        "Data length exceeds max limit - 255. Extended APDU is not supported!");
-
-    let apduCommand = new Uint8Array(apduFieldsLen + dataLen);
-    apduCommand[offset++] = command.cla & 0xFF;
-    apduCommand[offset++] = command.ins & 0xFF;
-    apduCommand[offset++] = command.p1 & 0xFF;
-    apduCommand[offset++] = command.p2 & 0xFF;
-    if (dataLen > 0) {
-      let index = 0;
-      // TBD: Extended APDU support is not supported for now
-      apduCommand[offset++] = dataLen & 0xFF;
-      while (offset < SE.MAX_APDU_LEN && index < dataLen) {
-        apduCommand[offset++] = command.data[index++];
-      }
-    }
-    if (le !== -1) {
-      apduCommand[offset] = command.le;
-    }
-
+    let commandAPDU = {
+      cla: command.cla & 0xFF,
+      ins: command.ins & 0xFF,
+      p1: command.p1 & 0xFF,
+      p2: command.p2 & 0xFF,
+      data: (!command.data) ? null : command.data,
+      le: command.le
+    };
     return PromiseHelpers._createSEPromise((aResolverId) => {
       cpmm.sendAsyncMessage("SE:TransmitAPDU",
                             {
                               resolverId: aResolverId,
-                              apdu: apduCommand,
+                              apdu: commandAPDU,
                               channelToken: this._channelToken,
                               aid: this._aid,
                               sessionId: this._sessionId,
@@ -342,7 +312,7 @@ SEChannel.prototype = {
   },
 
   get isClosed() {
-    return cpmm.sendSyncMessage("SE:CheckChannelState",
+    return cpmm.sendSyncMessage("SE:IsChannelClosed",
                                 {
                                   channelToken: this._channelToken,
                                   sessionId: this._sessionId,
@@ -431,13 +401,14 @@ SESession.prototype = {
                             {
                               resolverId: aResolverId,
                               sessionId: this._sessionId,
+                              type: this.reader.type,
                               appId: this._window.document.nodePrincipal.appId
                             });
     });
   },
 
   get isClosed() {
-    return cpmm.sendSyncMessage("SE:CheckSessionState",
+    return cpmm.sendSyncMessage("SE:IsSessionClosed",
                                 {
                                   sessionId: this._sessionId,
                                   appId: this._window.document.nodePrincipal.appId
@@ -500,7 +471,7 @@ SEReader.prototype = {
   },
 
   get isSEPresent() {
-    return cpmm.sendSyncMessage("SE:CheckSEState",
+    return cpmm.sendSyncMessage("SE:IsSEPresent",
                                 {
                                   type: this.type,
                                   appId: this._window.document.nodePrincipal.appId
@@ -660,8 +631,8 @@ SEManager.prototype = {
       case "SE:TransmitAPDURejected":
       case "SE:CloseAllByReaderRejected":
       case "SE:CloseAllBySessionRejected":
-        // TBD: Reject with the reason
-        resolver.reject();
+        let reason = data.status ? data.status : 'SEGenericError';
+        resolver.reject(reason);
         break;
       default:
         debug("Could not find a handler for " + aMessage.name);

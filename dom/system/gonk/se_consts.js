@@ -41,11 +41,11 @@ this.MAX_APDU_RESPONSE_LEN = 256;
 // CLA (1 byte) + INS (1 byte) + P1 (1 byte) + P2 (1 byte)
 this.APDU_HEADER_LEN = 4;
 
-this.CLA_BYTE_OFFSET = 0;
-this.INS_BYTE_OFFSET = 1;
-this.P1_BYTE_OFFSET = 2;
-this.P2_BYTE_OFFSET = 3;
-this.P3_BYTE_OFFSET = 4;
+this.CLA_BYTE_OFFSET  = 0;
+this.INS_BYTE_OFFSET  = 1;
+this.P1_BYTE_OFFSET   = 2;
+this.P2_BYTE_OFFSET   = 3;
+this.P3_BYTE_OFFSET   = 4;
 this.DATA_BYTE_OFFSET = 5;
 
 this.MIN_AID_LEN = 5;
@@ -53,13 +53,49 @@ this.MAX_AID_LEN = 16;
 
 this.INS_SELECT = 0xA4;
 this.INS_MANAGE_CHANNEL = 0x70;
-this.GET_RESPONSE = 0xC0;
+this.INS_GET_RESPONSE = 0xC0;
 
-this.ERROR_SUCCESS = 0;
-this.ERROR_GENERIC_FAILURE = 1;
+// Match the following errors with SecureElement.webidl's SEError enum values
+this.ERROR_NONE               = '';
+this.ERROR_SECURITY           = 'SESecurityError';
+this.ERROR_IO                 = 'SEIoError';
+this.ERROR_BADSTATE           = 'SEBadStateError';
+this.ERROR_INVALIDCHANNEL     = 'SEInvalidChannelError';
+this.ERROR_INVALIDAPPLICATION = 'SEInvalidApplicationError';
+this.ERROR_GENERIC            = 'SEGenericError';
 
 this.TYPE_UICC = 'uicc';
-this.TYPE_eSE = 'eSE';
+this.TYPE_ESE = 'eSE';
+
+this.gUtils = {
+  hexStringToBytes: function(hexString) {
+    let bytes = [];
+    let length = hexString.length;
+
+    for (let i = 0; i < length; i += 2) {
+      bytes.push(Number.parseInt(hexString.substr(i, 2), 16));
+    }
+
+    return bytes;
+  },
+
+  byteTohexString: function(array) {
+    let hexString = "";
+    let hex;
+
+    if (!array || array.length === 0)
+      return hexString;
+
+    for (let i = 0; i < array.length; i++) {
+      hex = array[i].toString(16).toUpperCase();
+      if (hex.length === 1) {
+        hexString += "0";
+      }
+      hexString += hex;
+    }
+    return hexString;
+  }
+};
 
 // Allow this file to be imported via Components.utils.import().
 this.EXPORTED_SYMBOLS = Object.keys(this);
