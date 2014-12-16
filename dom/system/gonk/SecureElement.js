@@ -19,11 +19,15 @@
 
 const {classes: Cc, interfaces: Ci, utils: Cu, results: Cr} = Components;
 
+function debug(s) {
+  if (DEBUG) {
+    dump("-*- SecureElement: " + s + "\n");
+  }
+}
+
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource://gre/modules/systemlibs.js");
-Cu.import("resource://gre/modules/Promise.jsm");
-Cu.import("resource://gre/modules/FileUtils.jsm");
 
 XPCOMUtils.defineLazyGetter(this, "SE", function() {
   let obj = {};
@@ -33,12 +37,6 @@ XPCOMUtils.defineLazyGetter(this, "SE", function() {
 
 // set to true in se_consts.js to see debug messages
 let DEBUG = SE.DEBUG_SE;
-
-function debug(s) {
-  if (DEBUG) {
-    dump("-*- SecureElement: " + s + "\n");
-  }
-}
 
 // TBD: In the Multi-sim, there is more than one client.
 // For now, use default clientID as 0. Ideally, SE parent process would like to
@@ -83,10 +81,11 @@ function SecureElement() {
 
 SecureElement.prototype = {
   classID: SE_CID,
-  classInfo: XPCOMUtils.generateCI({classID: SE_CID,
-                  contractID: SE_CONTRACTID,
-                  classDescription: "SecureElement",
-                  interfaces: []})
+  classInfo: XPCOMUtils.generateCI({
+    classID: SE_CID,
+    contractID: SE_CONTRACTID,
+    classDescription: "SecureElement",
+    interfaces: []})
 };
 
 // Factory constructor
