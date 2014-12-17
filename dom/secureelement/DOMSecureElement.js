@@ -320,7 +320,7 @@ SEChannel.prototype = {
                                   channelToken: this._channelToken,
                                   sessionId: this._sessionId,
                                   appId: this._window.document.nodePrincipal.appId
-                                });
+                                })[0];
   },
 
   get type() {
@@ -415,7 +415,7 @@ SESession.prototype = {
                                 {
                                   sessionId: this._sessionId,
                                   appId: this._window.document.nodePrincipal.appId
-                                });
+                                })[0];
   },
 
   get atr() {
