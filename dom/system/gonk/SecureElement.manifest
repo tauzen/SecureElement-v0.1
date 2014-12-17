@@ -14,6 +14,6 @@
 
 # SecureElement
 component {48f4e650-28d2-11e4-8c21-0800200c9a66} SecureElement.js
-contract @mozilla.org/se;1 {48f4e650-28d2-11e4-8c21-0800200c9a66}
-category profile-after-change SecureElement @mozilla.org/se;1
+contract @mozilla.org/secureelement;1 {48f4e650-28d2-11e4-8c21-0800200c9a66}
+category profile-after-change SecureElement @mozilla.org/secureelement;1
 

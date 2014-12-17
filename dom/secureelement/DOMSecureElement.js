@@ -266,6 +266,8 @@ SEChannel.prototype = {
     this.openResponse = Cu.cloneInto(new Uint8Array(openResponse), win);
     // Update 'session' obj
     this.session = SEStateHelper.getSessionObjById(this._sessionId);
+    // Update the type
+    this._type = this.session.reader.type;
   },
 
   transmit: function(command) {
@@ -290,6 +292,7 @@ SEChannel.prototype = {
                               resolverId: aResolverId,
                               apdu: commandAPDU,
                               channelToken: this._channelToken,
+                              type: this._type,
                               aid: this._aid,
                               sessionId: this._sessionId,
                               appId: this._window.document.nodePrincipal.appId
@@ -631,7 +634,7 @@ SEManager.prototype = {
       case "SE:TransmitAPDURejected":
       case "SE:CloseAllByReaderRejected":
       case "SE:CloseAllBySessionRejected":
-        let reason = data.status ? data.status : 'SEGenericError';
+        let error = data.error ? data.error : 'SEGenericError';
         resolver.reject(reason);
         break;
       default:
