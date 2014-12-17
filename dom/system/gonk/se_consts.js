@@ -19,18 +19,18 @@
 this.DEBUG_ALL = true;
 
 // Set individually to debug specific layers
-this.DEBUG_ACE = false || DEBUG_ALL;
-this.DEBUG_SE = false || DEBUG_ALL;
+this.DEBUG_SE = DEBUG_ALL || false ;
 
 // Ideally this should have been 3, as we do not allow basic channel' : 0 on 'uicc'.
 // Max number of supplementary logical channels available would be : [1, 2, or 3].
 // Other SE types may support upto max 4.
-
 // Maximun logical channels per session.
 this.MAX_CHANNELS_ALLOWED_PER_SESSION = 4;
 
 this.TYPE_BASIC_CHANNEL = 0;
 this.TYPE_LOGICAL_CHANNEL = 1;
+
+this.BASIC_CHANNEL = 0;
 
 // According GPCardSpec 2.2
 this.MAX_APDU_LEN = 255; // including APDU header
@@ -56,16 +56,16 @@ this.INS_MANAGE_CHANNEL = 0x70;
 this.INS_GET_RESPONSE = 0xC0;
 
 // Match the following errors with SecureElement.webidl's SEError enum values
-this.ERROR_NONE               = '';
-this.ERROR_SECURITY           = 'SESecurityError';
-this.ERROR_IO                 = 'SEIoError';
-this.ERROR_BADSTATE           = 'SEBadStateError';
-this.ERROR_INVALIDCHANNEL     = 'SEInvalidChannelError';
-this.ERROR_INVALIDAPPLICATION = 'SEInvalidApplicationError';
-this.ERROR_GENERIC            = 'SEGenericError';
+this.ERROR_NONE               = "";
+this.ERROR_SECURITY           = "SESecurityError";
+this.ERROR_IO                 = "SEIoError";
+this.ERROR_BADSTATE           = "SEBadStateError";
+this.ERROR_INVALIDCHANNEL     = "SEInvalidChannelError";
+this.ERROR_INVALIDAPPLICATION = "SEInvalidApplicationError";
+this.ERROR_GENERIC            = "SEGenericError";
 
-this.TYPE_UICC = 'uicc';
-this.TYPE_ESE = 'eSE';
+this.TYPE_UICC = "uicc";
+this.TYPE_ESE = "eSE";
 
 this.gUtils = {
   hexStringToBytes: function(hexString) {

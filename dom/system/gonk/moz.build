@@ -101,7 +101,7 @@ EXTRA_COMPONENTS += [
     'SecureElement.manifest',
 ]
 EXTRA_JS_MODULES += [
-        'se_consts.js',
+    'se_consts.js',
 ]
 
 FAIL_ON_WARNINGS = True
