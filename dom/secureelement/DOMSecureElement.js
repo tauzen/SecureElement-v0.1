@@ -100,12 +100,12 @@ let SEStateHelper = {
     };
   },
 
-  getSessionObjById(sessionId) {
+  getSessionContentObjById(sessionId) {
     let keys = Object.keys(this._stateInfoMap);
     for (let i = 0; i < keys.length; i++) {
       let sessions = this._stateInfoMap[keys[i]].sessions;
       if (sessions[sessionId]) {
-        return sessions[sessionId].session;
+        return sessions[sessionId].session.contentObj;
       }
     }
   },
@@ -118,7 +118,8 @@ let SEStateHelper = {
         Object.keys(channels).forEach((aToken) => {
           this.deleteChannelObjByToken(aToken, sessionId);
         });
-        delete sessions[sessionId].session;
+        sessions[sessionId].session._isClosed = true;
+        delete sessions[sessionId];
       }
     });
   },
@@ -132,7 +133,7 @@ let SEStateHelper = {
     });
   },
 
-  getChannelObjByToken(channelToken) {
+  getChannelContentObjByToken(channelToken) {
     let keys = Object.keys(this._stateInfoMap);
     for (let i = 0; i < keys.length; i++) {
       let sessions = this._stateInfoMap[keys[i]].sessions;
@@ -140,7 +141,7 @@ let SEStateHelper = {
       for (let j = 0; j < sessionKeys.length; j++) {
         let channels = sessions[sessionKeys[j]].channels;
         if (channels[channelToken]) {
-          return channels[channelToken];
+          return channels[channelToken].contentObj;
         }
       }
     }
@@ -151,6 +152,7 @@ let SEStateHelper = {
       let sessions = this._stateInfoMap[aType].sessions;
       if (sessions[sessionId] &&
           sessions[sessionId].channels[channelToken]) {
+        sessions[sessionId].channels[channelToken]._isClosed = true;
         delete sessions[sessionId].channels[channelToken];
       }
     });
@@ -218,7 +220,7 @@ function SEResponse(aResponseInfo) {
   this.sw2 = 0x00;
   this.data = null;
 
-  this.channel = SEStateHelper.getChannelObjByToken(aResponseInfo.token);
+  this.channel = SEStateHelper.getChannelContentObjByToken(aResponseInfo.token);
   let apduResponse = aResponseInfo.response;
   if (!apduResponse.simResponse || apduResponse.simResponse.length === 0) {
     debug("APDU Response: Empty / Not Set!");
@@ -253,6 +255,8 @@ SEChannel.prototype = {
   __proto__: DOMRequestIpcHelper.prototype,
 
   _window: null,
+  _isClosed: false,
+  contentObject: null,
 
   classID: Components.ID("{181ebcf4-5164-4e28-99f2-877ec6fa83b9}"),
   contractID: "@mozilla.org/secureelement/SEChannel;1",
@@ -262,7 +266,7 @@ SEChannel.prototype = {
     this._window = win;
     this.openResponse = Cu.cloneInto(new Uint8Array(openResponse), win);
     // Update 'session' obj
-    this.session = SEStateHelper.getSessionObjById(this._sessionId);
+    this.session = SEStateHelper.getSessionContentObjById(this._sessionId);
     // Update the type
     this._type = this.session.reader.type;
   },
@@ -313,11 +317,7 @@ SEChannel.prototype = {
   },
 
   get isClosed() {
-    return cpmm.sendSyncMessage("SE:IsChannelClosed", {
-      channelToken: this._channelToken,
-      sessionId: this._sessionId,
-      appId: this._window.document.nodePrincipal.appId
-    })[0];
+    return this._isClosed;
   },
 
   get type() {
@@ -334,7 +334,7 @@ SEChannel.prototype = {
 
   _checkClosed: function() {
     if (this.isClosed === true) {
-      throw new Error("SEBadStateError: Channel Already Closed!");
+      throw new Error(SE.ERROR_BADSTATE + ": Channel Already Closed!");
     }
   }
 };
@@ -350,6 +350,8 @@ function SESession(aSessionInfo) {
 
 SESession.prototype = {
   _window: null,
+  _isClosed: false,
+  contentObject: null,
 
   classID: Components.ID("{2b1809f8-17bd-4947-abd7-bdef1498561c}"),
   contractID: "@mozilla.org/secureelement/SESession;1",
@@ -407,10 +409,7 @@ SESession.prototype = {
   },
 
   get isClosed() {
-    return cpmm.sendSyncMessage("SE:IsSessionClosed", {
-      sessionId: this._sessionId,
-      appId: this._window.document.nodePrincipal.appId
-    })[0];
+    return this._isClosed;
   },
 
   get atr() {
@@ -420,7 +419,7 @@ SESession.prototype = {
 
   _checkClosed: function() {
     if (this.isClosed === true) {
-      throw new Error("SEBadStateError: Session Already Closed!");
+      throw new Error(SE.ERROR_BADSTATE + ": Session Already Closed!");
     }
   }
 };
@@ -583,8 +582,9 @@ SEManager.prototype = {
         });
         chromeObj.initialize(this._window);
         contentObj = this._window.SESession._create(this._window, chromeObj);
+        chromeObj.contentObj = contentObj;
         // Update the session obj
-        SEStateHelper.addSessionObj(contentObj, {
+        SEStateHelper.addSessionObj(chromeObj, {
           sessionId: data.sessionId,
           type: data.type
         });
@@ -596,8 +596,9 @@ SEManager.prototype = {
                                     sessionId: data.sessionId });
         chromeObj.initialize(this._window, data.openResponse);
         contentObj = this._window.SEChannel._create(this._window, chromeObj);
+        chromeObj.contentObj = contentObj;
         // Update 'channel obj'
-        SEStateHelper.addChannelObj(contentObj, { sessionId: data.sessionId,
+        SEStateHelper.addChannelObj(chromeObj, { sessionId: data.sessionId,
                                                   token: data.channelToken });
         resolver.resolve(contentObj);
         break;
