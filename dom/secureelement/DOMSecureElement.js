@@ -4,6 +4,9 @@
 
 /* Copyright © 2014, Deutsche Telekom, Inc. */
 
+/* globals dump, Components, XPCOMUtils, DOMRequestIpcHelper, cpmm, SE,
+   Services */
+
 "use strict";
 
 const DEBUG = true;
@@ -13,7 +16,6 @@ function debug(s) {
   }
 }
 
-const Cc = Components.classes;
 const Ci = Components.interfaces;
 const Cu = Components.utils;
 
@@ -25,55 +27,48 @@ XPCOMUtils.defineLazyServiceGetter(this, "cpmm",
                                    "@mozilla.org/childprocessmessagemanager;1",
                                    "nsISyncMessageSender");
 
-XPCOMUtils.defineLazyServiceGetter(this, "iccProvider",
-                   "@mozilla.org/ril/content-helper;1",
-                   "nsIIccProvider");
-
 XPCOMUtils.defineLazyGetter(this, "SE", function() {
   let obj = {};
   Cu.import("resource://gre/modules/se_consts.js", obj);
   return obj;
 });
 
-/*
+/**
  * Helper object that maintains sessionObj and its corresponding
  * channelObj for a given SE type
  */
 let SEStateHelper = {
 
   /*
-     ------------------------------
-       Structure of 'stateInfoMap':
-     ------------------------------
-     { ['uicc' :
-                 reader : readerObj1
-                 sessions :
-                           { [xxxxx : // 'sessionId'
-                                     channels : { [aaaaa: // 'channelToken' 1 (key 1)
-                                                           channelObj 1 ]
-                                                  [bbbbb: // 'channelToken' 2 (key 2)
-                                                           channelObj 2 ]
-                                                }
-                             ]
-                             [yyyyy : // 'sessionId'
-                                     channels : { [ccccc: // 'channelToken' 3 (key 1)
-                                                           channelObj 3 ]
-                                                  [ddddd: // 'channelToken' 4 (key 2)
-                                                           channelObj 4 ]
-                                                }
-                             ]
-                          } // End of 'sessions'
-       ]
-       [ 'eSE' :
-                 reader : readerObj2
-                 sessions :
-                              { [..... : ..]
-                                [..... : ..]
-                              }
-       ]
-     }
-  */
-
+    Example of _stateInfoMap, sessionIds and channelTokens are uuids
+    generated in parent process:
+    {
+      uicc : {
+        reader: uiccReaderObj,
+        sessions: {
+          uiccSessionId1: {
+            session: uiccSesssionObj1,
+            channels: {
+              uiccChannelToken1: uiccChannelObj1,
+              uiccChannelToken2: uiccChannelObj2
+            }
+          },
+          uiccSessionId2: {
+            session: uiccSessionObj2,
+            channels: {
+              uiccChannelToken3: uiccChannelObj3
+              ...
+            }
+          }
+          ...
+        }
+      },
+      eSE : {
+        reader: eseReaderObj
+        ...
+      }
+    }
+   */
   _stateInfoMap: {},
 
   addReaderObjs(readerObjs) {
@@ -92,22 +87,26 @@ let SEStateHelper = {
   deleteReaderObjByType(type) {
     let sessions = this._stateInfoMap[type].sessions;
     Object.keys(sessions).forEach((sessionId) => {
-      if (sessions[sessionId])
-        delete this.deleteSessionObjById(sessionId);
+      if (sessions[sessionId]) {
+        this.deleteSessionObjById(sessionId);
+      }
     });
   },
 
   addSessionObj(sessionObj, aInfo) {
-    this._stateInfoMap[aInfo.type].sessions[aInfo.sessionId] = { session: sessionObj,
-                                                                 channels: {} };
+    this._stateInfoMap[aInfo.type].sessions[aInfo.sessionId] = {
+      session: sessionObj,
+      channels: {}
+    };
   },
 
   getSessionObjById(sessionId) {
     let keys = Object.keys(this._stateInfoMap);
     for (let i = 0; i < keys.length; i++) {
       let sessions = this._stateInfoMap[keys[i]].sessions;
-      if (sessions[sessionId])
+      if (sessions[sessionId]) {
         return sessions[sessionId].session;
+      }
     }
   },
 
@@ -127,8 +126,9 @@ let SEStateHelper = {
   addChannelObj(channelObj, aInfo) {
     Object.keys(this._stateInfoMap).forEach((aType) => {
       let sessions = this._stateInfoMap[aType].sessions;
-      if (sessions[aInfo.sessionId])
+      if (sessions[aInfo.sessionId]) {
         sessions[aInfo.sessionId].channels[aInfo.token] = channelObj;
+      }
     });
   },
 
@@ -139,8 +139,9 @@ let SEStateHelper = {
       let sessionKeys = Object.keys(sessions);
       for (let j = 0; j < sessionKeys.length; j++) {
         let channels = sessions[sessionKeys[j]].channels;
-        if (channels[channelToken])
+        if (channels[channelToken]) {
           return channels[channelToken];
+        }
       }
     }
   },
@@ -159,6 +160,7 @@ let SEStateHelper = {
 function PromiseHelpersSubclass(win) {
    this._window = win;
 }
+
 PromiseHelpersSubclass.prototype = {
   __proto__: DOMRequestIpcHelper.prototype,
 
@@ -176,10 +178,9 @@ PromiseHelpersSubclass.prototype = {
 
 
   _rejectWithSEError: function(aReason) {
-    let self = this;
-    return this._createSEPromise(function(aResolverId) {
-      if (DEBUG) debug('SEError: ' + aReason);
-      self.takePromiseResolver(aResolverId).reject(aReason);
+    return this._createSEPromise((aResolverId) => {
+      debug("SEError: " + aReason);
+      this.takePromiseResolver(aResolverId).reject(aReason);
     });
   }
 };
@@ -188,11 +189,11 @@ PromiseHelpersSubclass.prototype = {
 let PromiseHelpers;
 
 /**
- * ==============================================
  * SECommand
- * ==============================================
+ * @todo add docs
  */
 function SECommand() {}
+
 SECommand.prototype = {
   __init: function(cla, ins, p1, p2, data, le) {
     this.cla = cla;
@@ -209,11 +210,9 @@ SECommand.prototype = {
 };
 
 /**
- * ==============================================
  * SEResponse
- * ==============================================
+ * @todo add docs
  */
-
 function SEResponse(aResponseInfo) {
   this.sw1 = 0x00;
   this.sw2 = 0x00;
@@ -222,7 +221,7 @@ function SEResponse(aResponseInfo) {
   this.channel = SEStateHelper.getChannelObjByToken(aResponseInfo.token);
   let apduResponse = aResponseInfo.response;
   if (!apduResponse.simResponse || apduResponse.simResponse.length === 0) {
-    if (DEBUG) debug('APDU Response: Empty / Not Set!');
+    debug("APDU Response: Empty / Not Set!");
   } else {
     this.data = apduResponse.simResponse.slice(0, apduResponse.length);
   }
@@ -239,11 +238,9 @@ SEResponse.prototype = {
 };
 
 /**
- * ==============================================
  * SEChannel
- * ==============================================
+ * @todo add docs
  */
-
 function SEChannel(aChannelInfo) {
   this._aid = aChannelInfo.aid;
   this._channelToken = aChannelInfo.token;
@@ -274,9 +271,11 @@ SEChannel.prototype = {
     this._checkClosed();
 
     let dataLen = (!command.data) ? 0 : command.data.length;
-    if ((SE.APDU_HEADER_LEN + dataLen) > SE.MAX_APDU_LEN)
-      return PromiseHelpers._rejectWithSEError('SEGenericError: ' +
-        "Command length exceeds max limit - 255. Extended APDU is not supported!");
+    if ((SE.APDU_HEADER_LEN + dataLen) > SE.MAX_APDU_LEN) {
+      return PromiseHelpers._rejectWithSEError(SE.ERROR_GENERIC +
+             "Command length exceeds max limit - 255. " +
+             " Extended APDU is not supported!");
+    }
 
     let commandAPDU = {
       cla: command.cla & 0xFF,
@@ -286,52 +285,51 @@ SEChannel.prototype = {
       data: (!command.data) ? null : command.data,
       le: command.le
     };
+
     return PromiseHelpers._createSEPromise((aResolverId) => {
-      cpmm.sendAsyncMessage("SE:TransmitAPDU",
-                            {
-                              resolverId: aResolverId,
-                              apdu: commandAPDU,
-                              channelToken: this._channelToken,
-                              type: this._type,
-                              aid: this._aid,
-                              sessionId: this._sessionId,
-                              appId: this._window.document.nodePrincipal.appId
-                            });
+      cpmm.sendAsyncMessage("SE:TransmitAPDU", {
+        resolverId: aResolverId,
+        apdu: commandAPDU,
+        channelToken: this._channelToken,
+        type: this._type,
+        aid: this._aid,
+        sessionId: this._sessionId,
+        appId: this._window.document.nodePrincipal.appId
+      });
     });
   },
 
   close: function() {
     this._checkClosed();
     return PromiseHelpers._createSEPromise((aResolverId) => {
-      cpmm.sendAsyncMessage("SE:CloseChannel",
-                            {
-                              resolverId: aResolverId,
-                              channelToken: this._channelToken,
-                              aid: this._aid,
-                              sessionId: this._sessionId,
-                              appId: this._window.document.nodePrincipal.appId
-                            });
+      cpmm.sendAsyncMessage("SE:CloseChannel", {
+        resolverId: aResolverId,
+        channelToken: this._channelToken,
+        aid: this._aid,
+        sessionId: this._sessionId,
+        appId: this._window.document.nodePrincipal.appId
+      });
     });
   },
 
   get isClosed() {
-    return cpmm.sendSyncMessage("SE:IsChannelClosed",
-                                {
-                                  channelToken: this._channelToken,
-                                  sessionId: this._sessionId,
-                                  appId: this._window.document.nodePrincipal.appId
-                                })[0];
+    return cpmm.sendSyncMessage("SE:IsChannelClosed", {
+      channelToken: this._channelToken,
+      sessionId: this._sessionId,
+      appId: this._window.document.nodePrincipal.appId
+    })[0];
   },
 
   get type() {
-    let type = cpmm.sendSyncMessage("SE:GetChannelType",
-                                    {
-                                      channelToken: this._channelToken,
-                                      sessionId: this._sessionId,
-                                      appId: this._window.document.nodePrincipal.appId
-                                    });
-    // The array values must match the enum value of 'SEChannelType' specified in webidl.
-    return ['basic', 'logical'][type];
+    let type = cpmm.sendSyncMessage("SE:GetChannelType", {
+      channelToken: this._channelToken,
+      sessionId: this._sessionId,
+      appId: this._window.document.nodePrincipal.appId
+    })[0];
+
+    // The array values must match the enum value of 'SEChannelType'
+    // specified in webidl.
+    return ["basic", "logical"][type];
   },
 
   _checkClosed: function() {
@@ -342,11 +340,9 @@ SEChannel.prototype = {
 };
 
 /**
- * ==============================================
  * SESession
- * ==============================================
+ * @todo add docs
  */
-
 function SESession(aSessionInfo) {
   this._sessionId = aSessionInfo.sessionId;
   this.reader = SEStateHelper.getReaderObjByType(aSessionInfo.type);
@@ -365,7 +361,7 @@ SESession.prototype = {
 
   openBasicChannel: function(aid) {
     // Not Supported for now!
-    return PromiseHelpers._rejectWithSEError('SEGenericError: ' +
+    return PromiseHelpers._rejectWithSEError(SE.ERROR_GENERIC +
       "OpenBasicChannel() is not supported for SE type : " + SE.TYPE_UICC);
   },
 
@@ -375,47 +371,46 @@ SESession.prototype = {
     // In case of UICC it is recommended to reject the opening of the logical
     // channel without a specific AID.
     if (!aid || aid.length === 0) {
-      if (this.reader.type === SE.TYPE_UICC)
-        return PromiseHelpers._rejectWithSEError('SEGenericError: ' +
-                                                  "AID is not specified!");
+      if (this.reader.type === SE.TYPE_UICC) {
+        return PromiseHelpers._rejectWithSEError(SE.ERROR_GENERIC +
+                                                 "AID is not specified!");
+      }
     }
 
-    if (aid.length < SE.MIN_AID_LEN || aid.length > SE.MAX_AID_LEN)
-      return PromiseHelpers._rejectWithSEError('SEGenericError: ' +
-                                               "Invalid AID length - " + aid.length);
+    if (aid.length < SE.MIN_AID_LEN || aid.length > SE.MAX_AID_LEN) {
+      return PromiseHelpers._rejectWithSEError(SE.ERROR_GENERIC +
+            "Invalid AID length - " + aid.length);
+    }
 
     this._aid = Cu.waiveXrays(aid);
     return PromiseHelpers._createSEPromise((aResolverId) => {
-      cpmm.sendAsyncMessage("SE:OpenChannel",
-                            {
-                              resolverId: aResolverId,
-                              aid: this._aid,
-                              sessionId: this._sessionId,
-                              type: this.reader.type,
-                              appId: this._window.document.nodePrincipal.appId
-                            });
+      cpmm.sendAsyncMessage("SE:OpenChannel", {
+        resolverId: aResolverId,
+        aid: this._aid,
+        sessionId: this._sessionId,
+        type: this.reader.type,
+        appId: this._window.document.nodePrincipal.appId
+      });
     });
   },
 
   closeAll: function() {
     this._checkClosed();
     return PromiseHelpers._createSEPromise((aResolverId) => {
-      cpmm.sendAsyncMessage("SE:CloseAllBySession",
-                            {
-                              resolverId: aResolverId,
-                              sessionId: this._sessionId,
-                              type: this.reader.type,
-                              appId: this._window.document.nodePrincipal.appId
-                            });
+      cpmm.sendAsyncMessage("SE:CloseAllBySession", {
+        resolverId: aResolverId,
+        sessionId: this._sessionId,
+        type: this.reader.type,
+        appId: this._window.document.nodePrincipal.appId
+      });
     });
   },
 
   get isClosed() {
-    return cpmm.sendSyncMessage("SE:IsSessionClosed",
-                                {
-                                  sessionId: this._sessionId,
-                                  appId: this._window.document.nodePrincipal.appId
-                                })[0];
+    return cpmm.sendSyncMessage("SE:IsSessionClosed", {
+      sessionId: this._sessionId,
+      appId: this._window.document.nodePrincipal.appId
+    })[0];
   },
 
   get atr() {
@@ -431,11 +426,9 @@ SESession.prototype = {
 };
 
 /**
- * ==============================================
  * SEReader
- * ==============================================
+ * @todo add docs
  */
-
 function SEReader(aType) {
   this.type = aType;
 }
@@ -453,39 +446,35 @@ SEReader.prototype = {
 
   openSession: function() {
     return PromiseHelpers._createSEPromise((aResolverId) => {
-      cpmm.sendAsyncMessage("SE:OpenSession",
-                            {
-                              resolverId: aResolverId,
-                              type: this.type,
-                              appId: this._window.document.nodePrincipal.appId
-                            });
+      cpmm.sendAsyncMessage("SE:OpenSession", {
+       resolverId: aResolverId,
+       type: this.type,
+       appId: this._window.document.nodePrincipal.appId
+      });
     });
   },
 
   closeAll: function() {
     return PromiseHelpers._createSEPromise((aResolverId) => {
-      cpmm.sendAsyncMessage("SE:CloseAllByReader",
-                            {
-                              resolverId: aResolverId,
-                              type: this.type,
-                              appId: this._window.document.nodePrincipal.appId
-                            });
+      cpmm.sendAsyncMessage("SE:CloseAllByReader", {
+        resolverId: aResolverId,
+        type: this.type,
+        appId: this._window.document.nodePrincipal.appId
+      });
     });
   },
 
   get isSEPresent() {
-    return cpmm.sendSyncMessage("SE:IsSEPresent",
-                                {
-                                  type: this.type,
-                                  appId: this._window.document.nodePrincipal.appId
-                                });
+    return cpmm.sendSyncMessage("SE:IsSEPresent", {
+      type: this.type,
+      appId: this._window.document.nodePrincipal.appId
+    });
   }
 };
 
 /**
- * ==============================================
  * SEManager
- * ==============================================
+ * @todo add docs
  */
 function SEManager() {}
 
@@ -511,7 +500,7 @@ SEManager.prototype = {
 
     let principal = win.document.nodePrincipal;
     let perm = Services.perms.testExactPermissionFromPrincipal(principal,
-                                                               "secureelement-manage");
+              "secureelement-manage");
     if (perm === Ci.nsIPermissionManager.ALLOW_ACTION) {
       this._isAllowed = true;
     }
@@ -545,21 +534,21 @@ SEManager.prototype = {
   _ensureAccess: function() {
     if (!this._isAllowed) {
       throw new this._window.DOMError("Security Exception!",
-                                      "Should have 'secureelement-manage' permssion.");
+                "Should have 'secureelement-manage' permssion.");
     }
   },
 
   getSEReaders: function() {
-    if (!this._isAllowed)
-      return PromiseHelpers._rejectWithSEError('SESecurityError: ' +
+    if (!this._isAllowed) {
+      return PromiseHelpers._rejectWithSEError(SE.ERROR_SECURITY +
         "Security Exception! Should have 'secureelement-manage' permssion.");
+    }
 
     return PromiseHelpers._createSEPromise((aResolverId) => {
-      cpmm.sendAsyncMessage("SE:GetSEReaders",
-                            {
-                              resolverId: aResolverId,
-                              appId: this._window.document.nodePrincipal.appId
-                            });
+      cpmm.sendAsyncMessage("SE:GetSEReaders", {
+        resolverId: aResolverId,
+        appId: this._window.document.nodePrincipal.appId
+      });
     });
   },
 
@@ -588,12 +577,17 @@ SEManager.prototype = {
         resolver.resolve(availableReaders);
         break;
       case "SE:OpenSessionResolved":
-        chromeObj = new SESession({ sessionId: data.sessionId, type: data.type });
+        chromeObj = new SESession({
+          sessionId: data.sessionId,
+          type: data.type
+        });
         chromeObj.initialize(this._window);
         contentObj = this._window.SESession._create(this._window, chromeObj);
         // Update the session obj
-        SEStateHelper.addSessionObj(contentObj, { sessionId: data.sessionId,
-                                                  type: data.type });
+        SEStateHelper.addSessionObj(contentObj, {
+          sessionId: data.sessionId,
+          type: data.type
+        });
         resolver.resolve(contentObj);
         break;
       case "SE:OpenChannelResolved":
@@ -608,7 +602,10 @@ SEManager.prototype = {
         resolver.resolve(contentObj);
         break;
       case "SE:TransmitAPDUResolved":
-        chromeObj = new SEResponse({ response: data.respApdu, token: data.channelToken });
+        chromeObj = new SEResponse({
+          response: data.respApdu,
+          token: data.channelToken
+        });
         contentObj = this._window.SEResponse._create(this._window, chromeObj);
         resolver.resolve(contentObj);
         break;
@@ -624,7 +621,8 @@ SEManager.prototype = {
         break;
       case "SE:CloseChannelResolved":
         // Clear the state in SEStateHelper obj
-        SEStateHelper.deleteChannelObjByToken(data.channelToken, data.sessionId);
+        SEStateHelper.deleteChannelObjByToken(data.channelToken,
+                                              data.sessionId);
         resolver.resolve();
         break;
       case "SE:GetSEReadersRejected":
@@ -634,7 +632,7 @@ SEManager.prototype = {
       case "SE:TransmitAPDURejected":
       case "SE:CloseAllByReaderRejected":
       case "SE:CloseAllBySessionRejected":
-        let error = data.error ? data.error : 'SEGenericError';
+        let error = data.error ? data.error : SE.ERROR_GENERIC;
         resolver.reject(error);
         break;
       default:
@@ -645,9 +643,6 @@ SEManager.prototype = {
   }
 };
 
-this.NSGetFactory = XPCOMUtils.generateNSGetFactory([SECommand,
-                                                     SEResponse,
-                                                     SEChannel,
-                                                     SESession,
-                                                     SEReader,
-                                                     SEManager]);
+this.NSGetFactory = XPCOMUtils.generateNSGetFactory([
+  SECommand, SEResponse, SEChannel, SESession, SEReader, SEManager
+]);
