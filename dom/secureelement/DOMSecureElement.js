@@ -118,7 +118,7 @@ let SEStateHelper = {
         Object.keys(channels).forEach((aToken) => {
           this.deleteChannelObjByToken(aToken, sessionId);
         });
-        sessions[sessionId]._isClosed = true;
+        sessions[sessionId].session._isClosed = true;
         delete sessions[sessionId];
       }
     });
