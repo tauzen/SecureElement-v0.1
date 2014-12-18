@@ -152,6 +152,7 @@ let SEStateHelper = {
       let sessions = this._stateInfoMap[aType].sessions;
       if (sessions[sessionId] &&
           sessions[sessionId].channels[channelToken]) {
+        sessions[sessionId].channels[channelToken]._isClosed = true;
         delete sessions[sessionId].channels[channelToken];
       }
     });
@@ -254,6 +255,7 @@ SEChannel.prototype = {
   __proto__: DOMRequestIpcHelper.prototype,
 
   _window: null,
+  _isClosed: false,
 
   classID: Components.ID("{181ebcf4-5164-4e28-99f2-877ec6fa83b9}"),
   contractID: "@mozilla.org/secureelement/SEChannel;1",
@@ -314,11 +316,7 @@ SEChannel.prototype = {
   },
 
   get isClosed() {
-    return cpmm.sendSyncMessage("SE:IsChannelClosed", {
-      channelToken: this._channelToken,
-      sessionId: this._sessionId,
-      appId: this._window.document.nodePrincipal.appId
-    })[0];
+    return this._isClosed;
   },
 
   get type() {
@@ -334,8 +332,8 @@ SEChannel.prototype = {
   },
 
   _checkClosed: function() {
-    if (this.isClosed === true) {
-      throw new Error("SEBadStateError: Channel Already Closed!");
+    if (this._isClosed === true) {
+      throw new Error(SE.ERROR_BADSTATE + ": Channel Already Closed!");
     }
   }
 };
