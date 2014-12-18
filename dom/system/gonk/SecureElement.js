@@ -220,16 +220,16 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
       }
     },
 
-    // Get the 'appInfo' associated with this 'target'.
+    // Get the 'appInfo (appId & readerTypes)' associated with this 'target'.
     getAppInfoByMsgTargt: function(target) {
       let targets = this.appInfoMap;
       let appIdKeys = Object.keys(targets);
 
       for (let i = 0; i < appIdKeys.length; i++) {
         let appId = appIdKeys[i];
-        let appInfo = targets[appId];
-        if (appInfo && appInfo.target === target) {
-          return appInfo;
+        let targetInfo = targets[appId];
+        if (targetInfo && targetInfo.target === target) {
+          return {appId: appId, readerTypes: targetInfo.readerTypes};
         }
       }
     },
@@ -432,7 +432,7 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
     // Returns false if the channel entry is present in the map. It implies that the
     // channel is still open. If the entry is not found in the map, it returns true.
     isChannelClosed: function(data) {
-      return !this.appInfoMap[data.appId].sessions[data.sessionId].channels[data.channelToken];
+      return (this.appInfoMap[data.appId].sessions[data.sessionId].channels[data.channelToken] === undefined);
     },
 
     // Validates the given 'aid' by comparing the it with the one already

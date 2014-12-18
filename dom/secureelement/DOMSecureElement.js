@@ -635,7 +635,7 @@ SEManager.prototype = {
       case "SE:CloseAllByReaderRejected":
       case "SE:CloseAllBySessionRejected":
         let error = data.error ? data.error : 'SEGenericError';
-        resolver.reject(reason);
+        resolver.reject(error);
         break;
       default:
         debug("Could not find a handler for " + aMessage.name);
