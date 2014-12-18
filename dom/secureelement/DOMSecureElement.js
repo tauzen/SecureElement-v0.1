@@ -118,7 +118,8 @@ let SEStateHelper = {
         Object.keys(channels).forEach((aToken) => {
           this.deleteChannelObjByToken(aToken, sessionId);
         });
-        delete sessions[sessionId].session;
+        sessions[sessionId]._isClosed = true;
+        delete sessions[sessionId];
       }
     });
   },
@@ -350,6 +351,7 @@ function SESession(aSessionInfo) {
 
 SESession.prototype = {
   _window: null,
+  _isClosed: false,
 
   classID: Components.ID("{2b1809f8-17bd-4947-abd7-bdef1498561c}"),
   contractID: "@mozilla.org/secureelement/SESession;1",
@@ -407,10 +409,7 @@ SESession.prototype = {
   },
 
   get isClosed() {
-    return cpmm.sendSyncMessage("SE:IsSessionClosed", {
-      sessionId: this._sessionId,
-      appId: this._window.document.nodePrincipal.appId
-    })[0];
+    return this._isClosed;
   },
 
   get atr() {
@@ -419,8 +418,8 @@ SESession.prototype = {
   },
 
   _checkClosed: function() {
-    if (this.isClosed === true) {
-      throw new Error("SEBadStateError: Session Already Closed!");
+    if (this._isClosed === true) {
+      throw new Error(SE.ERROR_BADSTATE + ": Session Already Closed!");
     }
   }
 };
