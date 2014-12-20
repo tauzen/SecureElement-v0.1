@@ -81,7 +81,8 @@ let SEStateHelper = {
   },
 
   getReaderObjByType(type) {
-    return this._stateInfoMap[type].reader;
+    let map = this._stateInfoMap[type];
+    return (map ? map.reader : null);
   },
 
   deleteReaderObjByType(type) {
@@ -108,6 +109,7 @@ let SEStateHelper = {
         return sessions[sessionId].session;
       }
     }
+    return null;
   },
 
   deleteSessionObjById(sessionId) {
@@ -144,14 +146,15 @@ let SEStateHelper = {
         }
       }
     }
+    return null;
   },
 
   deleteChannelObjByToken(channelToken, sessionId) {
     Object.keys(this._stateInfoMap).forEach((aType) => {
       let sessions = this._stateInfoMap[aType].sessions;
-      if (sessions[sessionId] &&
-          sessions[sessionId].channels[channelToken]) {
-        delete sessions[sessionId].channels[channelToken];
+      let aSession = sessions[sessionId];
+      if (aSession && aSession.channels[channelToken]) {
+        delete aSession.channels[channelToken];
       }
     });
   }
@@ -219,7 +222,7 @@ function SEResponse(aResponseInfo) {
   this.data = null;
 
   this.channel = SEStateHelper.getChannelObjByToken(aResponseInfo.token);
-  let apduResponse = aResponseInfo.response;
+  let apduResponse = aResponseInfo.result;
   if (!apduResponse.simResponse || apduResponse.simResponse.length === 0) {
     debug("APDU Response: Empty / Not Set!");
   } else {
@@ -247,6 +250,7 @@ function SEChannel(aChannelInfo) {
   this._sessionId = aChannelInfo.sessionId;
   this.session = null;
   this.openResponse = null;
+  this._channelType = aChannelInfo.isBasicChannel ? "basic" : "logical";
 }
 
 SEChannel.prototype = {
@@ -278,10 +282,10 @@ SEChannel.prototype = {
     }
 
     let commandAPDU = {
-      cla: command.cla & 0xFF,
-      ins: command.ins & 0xFF,
-      p1: command.p1 & 0xFF,
-      p2: command.p2 & 0xFF,
+      cla: command.cla,
+      ins: command.ins,
+      p1: command.p1,
+      p2: command.p2,
       data: (!command.data) ? null : command.data,
       le: command.le
     };
@@ -312,24 +316,16 @@ SEChannel.prototype = {
     });
   },
 
-  get isClosed() {
-    return cpmm.sendSyncMessage("SE:IsChannelClosed", {
-      channelToken: this._channelToken,
-      sessionId: this._sessionId,
-      appId: this._window.document.nodePrincipal.appId
-    })[0];
+  get type() {
+    return this._channelType;
   },
 
-  get type() {
-    let type = cpmm.sendSyncMessage("SE:GetChannelType", {
-      channelToken: this._channelToken,
-      sessionId: this._sessionId,
-      appId: this._window.document.nodePrincipal.appId
-    })[0];
+  set type(aChannelType) {
+    this._channelType = aChannelType;
+  },
 
-    // The array values must match the enum value of 'SEChannelType'
-    // specified in webidl.
-    return ["basic", "logical"][type];
+  get isClosed() {
+    return !SEStateHelper.getChannelObjByToken(this._channelToken) ? true : false;
   },
 
   _checkClosed: function() {
@@ -407,15 +403,7 @@ SESession.prototype = {
   },
 
   get isClosed() {
-    return cpmm.sendSyncMessage("SE:IsSessionClosed", {
-      sessionId: this._sessionId,
-      appId: this._window.document.nodePrincipal.appId
-    })[0];
-  },
-
-  get atr() {
-    // 'Answer to Reset' is not supported for now, return null.
-    return null;
+    return !SEStateHelper.getSessionObjById(this._sessionId) ? true : false;
   },
 
   _checkClosed: function() {
@@ -442,14 +430,15 @@ SEReader.prototype = {
 
   initialize: function ic_initialize(win) {
     this._window = win;
+    this._isSEPresent = true;
   },
 
   openSession: function() {
     return PromiseHelpers._createSEPromise((aResolverId) => {
       cpmm.sendAsyncMessage("SE:OpenSession", {
-       resolverId: aResolverId,
-       type: this.type,
-       appId: this._window.document.nodePrincipal.appId
+        resolverId: aResolverId,
+        type: this.type,
+        appId: this._window.document.nodePrincipal.appId
       });
     });
   },
@@ -465,10 +454,11 @@ SEReader.prototype = {
   },
 
   get isSEPresent() {
-    return cpmm.sendSyncMessage("SE:IsSEPresent", {
-      type: this.type,
-      appId: this._window.document.nodePrincipal.appId
-    });
+    return this._isSEPresent;
+  },
+
+  set isSEPresent(aIsSEPresent) {
+    this._isSEPresent = aIsSEPresent;
   }
 };
 
@@ -519,7 +509,8 @@ SEManager.prototype = {
                       "SE:CloseChannelRejected",
                       "SE:TransmitAPDURejected",
                       "SE:CloseAllByReaderRejected",
-                      "SE:CloseAllBySessionRejected"];
+                      "SE:CloseAllBySessionRejected",
+                      "SE:NotifySEPresent"];
 
     this.initDOMRequestHelper(win, messages);
   },
@@ -553,20 +544,24 @@ SEManager.prototype = {
   },
 
   receiveMessage: function(aMessage) {
-    let data = aMessage.json;
+    let result = aMessage.json.result;
+    let data = aMessage.json.metadata;
     let chromeObj = null;
     let contentObj = null;
-    debug("receiveMessage(): " + aMessage.name + " " + JSON.stringify(data));
+    let resolver = null;
+    debug("receiveMessage(): " + aMessage.name + " " + JSON.stringify(aMessage.json));
 
-    let resolver = PromiseHelpers.takePromiseResolver(data.resolverId);
-    if (!resolver) {
-      return;
+    if (data) {
+      resolver = PromiseHelpers.takePromiseResolver(data.resolverId);
+      if (!resolver) {
+        return;
+      }
     }
 
     switch (aMessage.name) {
       case "SE:GetSEReadersResolved":
         let availableReaders = this._window.Array();
-        if (data.readers.indexOf(SE.TYPE_UICC) > -1) {
+        if (result.readers.indexOf(SE.TYPE_UICC) > -1) {
           chromeObj = new SEReader(SE.TYPE_UICC);
           chromeObj.initialize(this._window);
           contentObj = this._window.SEReader._create(this._window, chromeObj);
@@ -577,33 +572,34 @@ SEManager.prototype = {
         resolver.resolve(availableReaders);
         break;
       case "SE:OpenSessionResolved":
-        chromeObj = new SESession({
-          sessionId: data.sessionId,
+        let aSessionInfo = {
+          sessionId: result.sessionId,
           type: data.type
-        });
+        };
+        chromeObj = new SESession(aSessionInfo);
         chromeObj.initialize(this._window);
         contentObj = this._window.SESession._create(this._window, chromeObj);
         // Update the session obj
-        SEStateHelper.addSessionObj(contentObj, {
-          sessionId: data.sessionId,
-          type: data.type
-        });
+        SEStateHelper.addSessionObj(contentObj, aSessionInfo);
         resolver.resolve(contentObj);
         break;
       case "SE:OpenChannelResolved":
-        chromeObj = new SEChannel({ aid: data.aid,
-                                    token: data.channelToken,
-                                    sessionId: data.sessionId });
-        chromeObj.initialize(this._window, data.openResponse);
+        let aChannelInfo = {
+          aid: data.aid,
+          token: result.channelToken,
+          basicChannel: result.isBasicChannel,
+          sessionId: data.sessionId
+        };
+        chromeObj = new SEChannel(aChannelInfo);
+        chromeObj.initialize(this._window, result.openResponse);
         contentObj = this._window.SEChannel._create(this._window, chromeObj);
         // Update 'channel obj'
-        SEStateHelper.addChannelObj(contentObj, { sessionId: data.sessionId,
-                                                  token: data.channelToken });
+        SEStateHelper.addChannelObj(contentObj, aChannelInfo);
         resolver.resolve(contentObj);
         break;
       case "SE:TransmitAPDUResolved":
         chromeObj = new SEResponse({
-          response: data.respApdu,
+          result: result,
           token: data.channelToken
         });
         contentObj = this._window.SEResponse._create(this._window, chromeObj);
@@ -634,6 +630,11 @@ SEManager.prototype = {
       case "SE:CloseAllBySessionRejected":
         let error = data.error ? data.error : SE.ERROR_GENERIC;
         resolver.reject(error);
+        break;
+      case "SE:NotifySEPresent":
+        let reader = SEStateHelper.getReaderObjByType(result.type);
+        if (reader)
+          reader.isSEPresent = result.isPresent;
         break;
       default:
         debug("Could not find a handler for " + aMessage.name);
