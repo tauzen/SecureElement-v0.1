@@ -13,7 +13,7 @@
  * limitations under the License.
  */
 
-/* Copyright © 2014, Deutsche Telekom, Inc. */
+/* Copyright © 2015, Deutsche Telekom, Inc. */
 
 "use strict";
 
@@ -76,7 +76,7 @@ function SEConnectorFactory() {}
  * - doCloseAll([channels], callback)
  * - isSEPresent()
  * AND expose atleast the following public functions:
- * - registerConnectorListener()
+ * - registerConnectorListener(listener)
  * - unregisterConnectorListener()
  */
 SEConnectorFactory.prototype = {

@@ -13,7 +13,7 @@
  * limitations under the License.
  */
 
-/* Copyright © 2014, Deutsche Telekom, Inc. */
+/* Copyright © 2015, Deutsche Telekom, Inc. */
 
 // Set to true to debug SecureElement (SE) stack
 this.DEBUG_ALL = true;
