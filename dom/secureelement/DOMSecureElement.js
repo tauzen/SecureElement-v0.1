@@ -40,30 +40,31 @@ XPCOMUtils.defineLazyGetter(this, "SE", function() {
 let SEStateHelper = {
 
   /*
-    Example of _stateInfoMap, sessionIds and channelTokens are uuids
-    generated in parent process:
-    {
-      uicc : {
+    // Structure of '_stateInfoMap'.
+
+    // 'sessionIds' and 'channelTokens' are uuids generated in parent process.
+    // These unique ids are used to represent and manage the instances of
+    // 'session' & 'channel' objects respectively.
+    { 'uicc' : {
         reader: uiccReaderObj,
         sessions: {
-          uiccSessionId1: {
+          [uiccSessionId1: {
             session: uiccSesssionObj1,
-            channels: {
+            channels: [
               uiccChannelToken1: uiccChannelObj1,
               uiccChannelToken2: uiccChannelObj2
-            }
+            ]
           },
           uiccSessionId2: {
             session: uiccSessionObj2,
-            channels: {
+            channels: [
               uiccChannelToken3: uiccChannelObj3
               ...
-            }
-          }
-          ...
+            ]
+          ]}
         }
       },
-      eSE : {
+      'eSE' : {
         reader: eseReaderObj
         ...
       }
@@ -194,7 +195,7 @@ PromiseHelpersSubclass.prototype = {
 let PromiseHelpers;
 
 /**
- * Instances of 'SEReader' class is the connector to a secure element.
+ * Instance of 'SEReader' class is the connector to a secure element.
  * A reader may or may not have a secure element present, since some
  * secure elements are removable in nature (eg:- 'uicc'). These
  * Readers can be physical devices or virtual devices
@@ -229,7 +230,7 @@ SEReader.prototype = {
     return PromiseHelpers._createSEPromise((aResolverId) => {
       cpmm.sendAsyncMessage("SE:CloseAllByReader", {
         resolverId: aResolverId,
-        type: this._type,
+        type: this.type,
         appId: this._window.document.nodePrincipal.appId
       });
     });
@@ -245,7 +246,7 @@ SEReader.prototype = {
 };
 
 /**
- * Instances of 'SESession' object represent a connection session
+ * Instance of 'SESession' object represent a connection session
  * to one of the secure elements available on the device.
  * These objects can be used to get a communication channel with an application
  * hosted by the Secure Element.
@@ -264,6 +265,8 @@ SESession.prototype = {
 
   initialize: function initialize(win, result, data) {
     this._window = win;
+    // Update the 'sessionId' that identifies and represents this
+    // instance of the object
     this._sessionId = result.sessionId;
     this.reader = SEStateHelper.getReaderObjByType(data.type);
   },
@@ -285,7 +288,8 @@ SESession.prototype = {
             " Invalid AID length - " + aid.length);
     }
 
-    this._aid = Cu.waiveXrays(aid);
+    // clone the aid
+    this._aid = aid.slice(0);
     return PromiseHelpers._createSEPromise((aResolverId) => {
       cpmm.sendAsyncMessage("SE:OpenChannel", {
         resolverId: aResolverId,
@@ -314,14 +318,14 @@ SESession.prototype = {
   },
 
   _checkClosed: function() {
-    if (this.isClosed === true) {
+    if (this.isClosed) {
       throw new Error(SE.ERROR_BADSTATE + " Session Already Closed!");
     }
   }
 };
 
 /**
- * Instances of 'SECommand' dom object represent C-APDU to be sent to a
+ * Instance of 'SECommand' dom object represent C-APDU to be sent to a
  * secure element.
  */
 function SECommand() {
@@ -349,7 +353,7 @@ SECommand.prototype = {
 };
 
 /**
- * Instances of 'SEChannel' object represent an ISO/IEC 7816-4 specification
+ * Instance of 'SEChannel' object represent an ISO/IEC 7816-4 specification
  * channel opened to a secure element. It can be either a logical channel
  * or basic channel.
  */
@@ -374,14 +378,14 @@ SEChannel.prototype = {
   initialize: function initialize(win, result, data) {
     this._window = win;
     this._aid = data.aid;
-    this._channelToken = result.channelToken;
     this._sessionId = data.sessionId;
     this._channelType = result.isBasicChannel ? "basic" : "logical";
+    // Update the 'channel token' that identifies and represents this
+    // instance of the object
+    this._channelToken = result.channelToken;
     this.openResponse = Cu.cloneInto(new Uint8Array(result.openResponse), win);
     // Update 'session' obj
     this.session = SEStateHelper.getSessionObjById(this._sessionId);
-    // Update the type
-    this._type = this.session.reader.type;
   },
 
   transmit: function(command) {
@@ -407,10 +411,10 @@ SEChannel.prototype = {
       cpmm.sendAsyncMessage("SE:TransmitAPDU", {
         resolverId: aResolverId,
         apdu: commandAPDU,
-        channelToken: this._channelToken,
-        type: this._type,
-        aid: this._aid,
+        type: this.session.reader.type,
         sessionId: this._sessionId,
+        channelToken: this._channelToken,
+        aid: this._aid,
         appId: this._window.document.nodePrincipal.appId
       });
     });
@@ -421,9 +425,10 @@ SEChannel.prototype = {
     return PromiseHelpers._createSEPromise((aResolverId) => {
       cpmm.sendAsyncMessage("SE:CloseChannel", {
         resolverId: aResolverId,
+        type: this.session.reader.type,
+        sessionId: this._sessionId,
         channelToken: this._channelToken,
         aid: this._aid,
-        sessionId: this._sessionId,
         appId: this._window.document.nodePrincipal.appId
       });
     });
@@ -442,14 +447,14 @@ SEChannel.prototype = {
   },
 
   _checkClosed: function() {
-    if (this.isClosed === true) {
+    if (this.isClosed) {
       throw new Error(SE.ERROR_BADSTATE +" Channel Already Closed!");
     }
   }
 };
 
 /**
- * Instances of 'SEResponse' object represents APDU response received
+ * Instance of 'SEResponse' object represent APDU response received
  * from a secure element.
  */
 function SEResponse() {
@@ -467,7 +472,6 @@ SEResponse.prototype = {
   initialize: function initialize(result, data) {
     this.data = result.simResponse ?
       result.simResponse.slice(0) : null;
-
     // Update the status bytes
     this.sw1 = result.sw1;
     this.sw2 = result.sw2;
@@ -616,8 +620,9 @@ SEManager.prototype = {
         break;
       case "SE:NotifySEPresent":
         let reader = SEStateHelper.getReaderObjByType(result.type);
-        if (reader)
+        if (reader) {
           reader.isSEPresent = result.isPresent;
+        }
         break;
       default:
         debug("Could not find a handler for " + aMessage.name);

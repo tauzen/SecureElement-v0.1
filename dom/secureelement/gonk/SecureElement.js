@@ -318,11 +318,6 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
       return (this.appInfoMap[data.appId].sessions[data.sessionId] ? true : false);
     },
 
-    // Get the Session Type : ('uicc' / 'eSE') for a given (appId, sessionId)
-    getSessionType: function(data) {
-      return this.appInfoMap[data.appId].sessions[data.sessionId].type;
-    },
-
     // Gets channel count associated with the 'sessionId'
     getChannelCountBySessionId: function(sessionId, appId) {
       let session = this.appInfoMap[appId].sessions[sessionId];
@@ -1041,10 +1036,7 @@ SecureElementManager.prototype = {
       return;
     }
 
-    // Create Connector obj based on the 'type'
-    let type = gMap.getSessionType({appId: msg.appId, sessionId: msg.sessionId});
     let connector = this.connectorFactory.getConnector(msg.type);
-
     // Set the channel to CLA before calling connector's doTransmit.
     // See GP Spec, 11.1.4 Class Byte Coding
     let channel = gMap.getChannel(msg);
@@ -1068,9 +1060,7 @@ SecureElementManager.prototype = {
       return;
     }
 
-    // Sanity passed! Create Connector obj based on the 'type'
-    let type = gMap.getSessionType({appId: msg.appId, sessionId: msg.sessionId});
-    return this._closeAll(type, [gMap.getChannel(msg)], callback);
+    return this._closeAll(msg.type, [gMap.getChannel(msg)], callback);
   },
 
   // Closes all the channels opened by a session
