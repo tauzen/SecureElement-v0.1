@@ -97,8 +97,8 @@ let SEStateHelper = {
     });
   },
 
-  addSessionObj(sessionObj, aInfo) {
-    this._stateInfoMap[aInfo.type].sessions[aInfo.sessionId] = {
+  addSessionObj(sessionObj, aSessionInfo) {
+    this._stateInfoMap[aSessionInfo.type].sessions[aSessionInfo.sessionId] = {
       session: sessionObj,
       channels: {}
     };
@@ -107,7 +107,8 @@ let SEStateHelper = {
   getSessionObjById(sessionId) {
     let keys = Object.keys(this._stateInfoMap);
     for (let i = 0; i < keys.length; i++) {
-      let sessions = this._stateInfoMap[keys[i]].sessions;
+      let aKey = keys[i];
+      let sessions = this._stateInfoMap[aKey].sessions;
       if (sessions[sessionId]) {
         return sessions[sessionId].session;
       }
@@ -118,21 +119,23 @@ let SEStateHelper = {
   deleteSessionObjById(sessionId) {
     Object.keys(this._stateInfoMap).forEach((aType) => {
       let sessions = this._stateInfoMap[aType].sessions;
-      if (sessions[sessionId]) {
-        let channels = sessions[sessionId].channels;
+      let aSession = sessions[sessionId];
+      if (aSession) {
+        let channels = aSession.channels;
         Object.keys(channels).forEach((aToken) => {
           this.deleteChannelObjByToken(aToken, sessionId);
         });
-        delete sessions[sessionId].session;
+        delete aSession.session;
       }
     });
   },
 
-  addChannelObj(channelObj, aInfo) {
+  addChannelObj(channelObj, aChannelInfo) {
     Object.keys(this._stateInfoMap).forEach((aType) => {
       let sessions = this._stateInfoMap[aType].sessions;
-      if (sessions[aInfo.sessionId]) {
-        sessions[aInfo.sessionId].channels[aInfo.token] = channelObj;
+      let aSession = sessions[aChannelInfo.sessionId];
+      if (aSession) {
+        aSession.channels[aChannelInfo.token] = channelObj;
       }
     });
   },
@@ -140,13 +143,12 @@ let SEStateHelper = {
   getChannelObjByToken(channelToken) {
     let keys = Object.keys(this._stateInfoMap);
     for (let i = 0; i < keys.length; i++) {
-      let sessions = this._stateInfoMap[keys[i]].sessions;
+      let aKey = keys[i];
+      let sessions = this._stateInfoMap[aKey].sessions;
       let sessionKeys = Object.keys(sessions);
       for (let j = 0; j < sessionKeys.length; j++) {
-        let channels = sessions[sessionKeys[j]].channels;
-        if (channels[channelToken]) {
-          return channels[channelToken];
-        }
+        let aSessionKey = sessionKeys[j];
+        return sessions[aSessionKey].channels[channelToken];
       }
     }
     return null;
@@ -156,7 +158,7 @@ let SEStateHelper = {
     Object.keys(this._stateInfoMap).forEach((aType) => {
       let sessions = this._stateInfoMap[aType].sessions;
       let aSession = sessions[sessionId];
-      if (aSession && aSession.channels[channelToken]) {
+      if (aSession) {
         delete aSession.channels[channelToken];
       }
     });
@@ -288,8 +290,8 @@ SESession.prototype = {
             " Invalid AID length - " + aid.length);
     }
 
-    // clone the aid
-    this._aid = aid.slice(0);
+    // copy the aid
+    this._aid = aid.subarray(0);
     return PromiseHelpers._createSEPromise((aResolverId) => {
       cpmm.sendAsyncMessage("SE:OpenChannel", {
         resolverId: aResolverId,

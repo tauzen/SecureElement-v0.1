@@ -21,10 +21,11 @@ this.DEBUG_ALL = true;
 // Set individually to debug specific layers
 this.DEBUG_SE = DEBUG_ALL || false ;
 
-// Ideally this should have been 3, as we do not allow basic channel' : 0 on 'uicc'.
-// Max number of supplementary logical channels available would be : [1, 2, or 3].
-// Other SE types may support upto max 4.
 // Maximun logical channels per session.
+// For 'uicc' SE type this value is 3, as opening a basic channel' : 0
+// is not allowed for security reasons. In such scenarios, possible
+// supplementary logical channels available are : [1, 2, or 3].
+// However,Other SE types may support upto max 4 (including '0').
 this.MAX_CHANNELS_ALLOWED_PER_SESSION = 4;
 
 this.TYPE_BASIC_CHANNEL = 0;
