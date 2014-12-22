@@ -4,8 +4,6 @@
 
 /* Copyright © 2014, Deutsche Telekom, Inc. */
 
-/* exported SEUtils */
-
 "use strict";
 
 this.SEUtils = {
@@ -54,62 +52,62 @@ this.SEUtils = {
   ensureIsArray: function ensureIsArray(obj) {
     return Array.isArray(obj) ? obj : [obj];
   },
-};
-
-/**
-  * Simple Tag-length-value utility used to parse ARF structure
-  * according to GPD Secure Element Access Control section 7
-  * @todo investigate if full TLV parser needed
-  */
-this.SimpleTLV = {
-  // PKCS#15 container tags
-  CONTAINER_TAGS: [0x30, 0x62, 0xA0, 0xA1, 0xA5, 0xA7],
 
   /**
-   * Returns an object representing TLV structure
-   * @param tlv - byte array or hex string tlv
-   * @return object represenation of TLV structure
+   * Simple Tag-length-value utility used to parse ARF structure
+   * according to GPD Secure Element Access Control section 7
+   * @todo investigate if full TLV parser needed
    */
-  parse: function parse(tlv) {
-    if (typeof tlv === "string") {
-      tlv = SEUtils.hexStringToBytes(tlv);
-    }
+  simpleTLV: {
+    // PKCS#15 container tags
+    CONTAINER_TAGS: [0x30, 0x62, 0xA0, 0xA1, 0xA5, 0xA7],
 
-    if (!Array.isArray(tlv)) {
-      return null;
-    }
-
-    let result = {};
-    for (let pos = 0, len = tlv.length; pos < len;) {
-      let tag = tlv[pos];
-      let length = tlv[pos + 1];
-      let value = tlv.slice(pos + 2, pos + 2 + length);
-      let parsed = null;
-
-      // Support for 0xFF padded files (GPD 7.1.2)
-      if (tag === 0xFF) {
-        break;
+    /**
+     * Returns an object representing TLV structure
+     * @param tlv - byte array or hex string tlv
+     * @return object represenation of TLV structure
+     */
+    parse: function parse(tlv) {
+      if (typeof tlv === "string") {
+        tlv = SEUtils.hexStringToBytes(tlv);
       }
 
-      if (this.CONTAINER_TAGS.indexOf(tag) >= 0) {
-        parsed = parse(value);
-      } else {
-        parsed = value;
+      if (!Array.isArray(tlv)) {
+        return null;
       }
 
-      if (!result[tag]) {
-        result[tag] = parsed;
-      } else if (Array.isArray(result[tag])) {
-        result[tag].push(parsed);
-      } else {
-        result[tag] = [result[tag], parsed];
+      let result = {};
+      for (let pos = 0, len = tlv.length; pos < len;) {
+        let tag = tlv[pos];
+        let length = tlv[pos + 1];
+        let value = tlv.slice(pos + 2, pos + 2 + length);
+        let parsed = null;
+
+        // Support for 0xFF padded files (GPD 7.1.2)
+        if (tag === 0xFF) {
+          break;
+        }
+
+        if (this.CONTAINER_TAGS.indexOf(tag) >= 0) {
+          parsed = parse(value);
+        } else {
+          parsed = value;
+        }
+
+        if (!result[tag]) {
+          result[tag] = parsed;
+        } else if (Array.isArray(result[tag])) {
+          result[tag].push(parsed);
+        } else {
+          result[tag] = [result[tag], parsed];
+        }
+
+        pos = pos + 2 + length;
       }
 
-      pos = pos + 2 + length;
+      return result;
     }
-
-    return result;
   }
 };
 
-this.EXPORTED_SYMBOLS = ["SEUtils", "SimpleTLV"];
+this.EXPORTED_SYMBOLS = ["SEUtils"];

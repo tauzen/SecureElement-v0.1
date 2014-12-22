@@ -35,6 +35,10 @@ XPCOMUtils.defineLazyGetter(this, "SE", function() {
   return obj;
 });
 
+XPCOMUtils.defineLazyModuleGetter(this, "SEUtils",
+                                  "resource://gre/modules/SEUtils.jsm");
+
+
 // set to true in se_consts.js to see debug messages
 let DEBUG = SE.DEBUG_SE;
 
