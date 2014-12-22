@@ -412,7 +412,7 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
     isValidAID: function(aid, data) {
       let regAid =
         this.appInfoMap[data.appId].sessions[data.sessionId].channels[data.channelToken].aid;
-      return this._compareAIDs(aid, regAid);
+      return SEUtils.arraysEqual(aid, regAid);
     },
 
     // Get the 'channel' associated for a given (appId, sessionId, channelToken)
@@ -455,10 +455,6 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
          allChannels.push(channel);
       }
       return  allChannels;
-    },
-
-    _compareAIDs: function(aid1, aid2) {
-      return (SEUtils.byteArrayToHexString(aid1) === SEUtils.byteArrayToHexString(aid2));
     },
 
     _getUUIDGenerator: function() {
