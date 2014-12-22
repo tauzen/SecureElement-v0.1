@@ -458,7 +458,7 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
     },
 
     _compareAIDs: function(aid1, aid2) {
-      return (SE.gUtils.byteTohexString(aid1) === SE.gUtils.byteTohexString(aid2));
+      return (SEUtils.byteArrayToHexString(aid1) === SEUtils.byteArrayToHexString(aid2));
     },
 
     _getUUIDGenerator: function() {
@@ -580,12 +580,7 @@ XPCOMUtils.defineLazyGetter(this, "UiccConnector", function() {
 
       // TBD: Finally Perform checks with ACE module
 
-      try {
-        debug("SE Utils usage" + SEUtils.byteArrayToHexString(aid));
-      } catch(e) {
-        debug("SEUtils failed");
-      }
-      let aidStr = SE.gUtils.byteTohexString(aid);
+      let aidStr = SEUtils.byteArrayToHexString(aid);
       let self = this;
       this._iccProvider.iccOpenChannel(PREFERRED_UICC_CLIENTID, aidStr, {
         notifyOpenChannelSuccess: function(channel) {
@@ -664,12 +659,13 @@ XPCOMUtils.defineLazyGetter(this, "UiccConnector", function() {
           commandData[offset] = command.data[offset];
           offset++;
         }
-        data = SE.gUtils.byteTohexString(commandData);
+        data = SEUtils.byteArrayToHexString(commandData);
       }
       if (data && appendLe) {
         // Append 'le' value to data
-        let leHexStr = SE.gUtils.byteTohexString(le & 0xFF) +
-                       SE.gUtils.byteTohexString((le >> 8) & 0xFF) ;
+        let leHexStr = SEUtils.byteArrayToHexString([
+          command.le & 0xFF, (command.le >> 8) & 0xFF
+        ]);
         data += leHexStr;
       }
       let channel = this._getChannelNumber(cla);
@@ -807,7 +803,7 @@ XPCOMUtils.defineLazyGetter(this, "UiccConnector", function() {
                                     response, callback);
           } else if (callback) {
             callback({ error: SE.ERROR_NONE, sw1: sw1, sw2: sw2,
-                       simResponse: SE.gUtils.hexStringToBytes(response) });
+                       simResponse: SEUtils.hexStringToByteArray(response) });
           }
         },
 
