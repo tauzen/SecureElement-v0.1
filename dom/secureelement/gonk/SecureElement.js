@@ -580,6 +580,11 @@ XPCOMUtils.defineLazyGetter(this, "UiccConnector", function() {
 
       // TBD: Finally Perform checks with ACE module
 
+      try {
+        debug("SE Utils usage" + SEUtils.byteArrayToHexString(aid));
+      } catch(e) {
+        debug("SEUtils failed");
+      }
       let aidStr = SE.gUtils.byteTohexString(aid);
       let self = this;
       this._iccProvider.iccOpenChannel(PREFERRED_UICC_CLIENTID, aidStr, {
