@@ -1156,12 +1156,6 @@ SecureElementManager.prototype = {
   receiveMessage: function(msg) {
     if (DEBUG) debug("Received '" + msg.name + "' message from content process" + ": " +
 		     JSON.stringify(msg.data));
-    let error = SE.ERROR_GENERIC;
-    let message = msg;
-    let promiseStatus = "Rejected";
-    let options = { error: error,
-		    resolverId: msg.json ? msg.json.resolverId : null };
-
     if (msg.name == "child-process-shutdown") {
       // By the time we receive child-process-shutdown, the child process has
       // already forgotten its permissions so we need to unregister the target
