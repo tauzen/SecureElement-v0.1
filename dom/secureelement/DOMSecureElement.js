@@ -218,8 +218,15 @@ SEReader.prototype = {
     this._isSEPresent = true;
   },
 
-  openSession: function() {
+  openSession: function openSession() {
     return PromiseHelpers._createSEPromise((aResolverId) => {
+      /**
+       * @params for 'SE:OpenSession'
+       *
+       * resolverId  : ID that identifies this IPC request.
+       * type        : Type identifying the session instance ('uicc' / 'eSE')
+       * appId       : Current appId obtained from 'Principal' obj
+       */
       cpmm.sendAsyncMessage("SE:OpenSession", {
         resolverId: aResolverId,
         type: this.type,
@@ -228,8 +235,15 @@ SEReader.prototype = {
     });
   },
 
-  closeAll: function() {
+  closeAll: function closeAll() {
     return PromiseHelpers._createSEPromise((aResolverId) => {
+      /**
+       * @params for 'SE:CloseAllByReader'
+       *
+       * resolverId  : ID that identifies this IPC request.
+       * type        : Type identifying the session instance ('uicc' / 'eSE')
+       * appId       : Current appId obtained from 'Principal' obj
+       */
       cpmm.sendAsyncMessage("SE:CloseAllByReader", {
         resolverId: aResolverId,
         type: this.type,
@@ -273,7 +287,7 @@ SESession.prototype = {
     this.reader = SEStateHelper.getReaderObjByType(data.type);
   },
 
-  openLogicalChannel: function(aid) {
+  openLogicalChannel: function openLogicalChannel(aid) {
     this._checkClosed();
     // According to SIMalliance_OpenMobileAPI v4 spec,
     // in case of UICC it is recommended to reject the opening of the logical
@@ -293,6 +307,16 @@ SESession.prototype = {
     // copy the aid
     this._aid = aid.subarray(0);
     return PromiseHelpers._createSEPromise((aResolverId) => {
+      /**
+       * @params for 'SE:OpenChannel'
+       *
+       * resolverId  : ID that identifies this IPC request.
+       * aid         : AID that identifies the applet on SecureElement
+       * sessionId   : ID that identifies the current ongoing session that
+                       this channel belongs to.
+       * type        : Reader type ('uicc' / 'eSE')
+       * appId       : Current appId obtained from 'Principal' obj
+       */
       cpmm.sendAsyncMessage("SE:OpenChannel", {
         resolverId: aResolverId,
         aid: this._aid,
@@ -303,9 +327,18 @@ SESession.prototype = {
     });
   },
 
-  closeAll: function() {
+  closeAll: function closeAll() {
     this._checkClosed();
     return PromiseHelpers._createSEPromise((aResolverId) => {
+      /**
+       * @params for 'SE:CloseAllBySession'
+       *
+       * resolverId  : ID that identifies this IPC request.
+       * sessionId   : ID that identifies the current ongoing session that
+                       this channel belongs to.
+       * type        : Reader type ('uicc' / 'eSE')
+       * appId       : Current appId obtained from 'Principal' obj
+       */
       cpmm.sendAsyncMessage("SE:CloseAllBySession", {
         resolverId: aResolverId,
         sessionId: this._sessionId,
@@ -340,7 +373,7 @@ function SECommand() {
 }
 
 SECommand.prototype = {
-  __init: function(cla, ins, p1, p2, data, le) {
+  __init: function __init(cla, ins, p1, p2, data, le) {
     this.cla = cla;
     this.ins = ins;
     this.p1 = p1;
@@ -390,7 +423,7 @@ SEChannel.prototype = {
     this.session = SEStateHelper.getSessionObjById(this._sessionId);
   },
 
-  transmit: function(command) {
+  transmit: function transmit(command) {
     this._checkClosed();
 
     let dataLen = (!command.data) ? 0 : command.data.length;
@@ -410,6 +443,19 @@ SEChannel.prototype = {
     };
 
     return PromiseHelpers._createSEPromise((aResolverId) => {
+      /**
+       * @params for 'SE:TransmitAPDU'
+       *
+       * resolverId  : ID that identifies this IPC request.
+       * apdu        : Object that wraps SECommand parameters
+       * type        : Reader type ('uicc' / 'eSE')
+       * sessionId   : ID that identifies the current ongoing session that
+                       this channel belongs to.
+       * channelToken: Token that identifies the current channel over which
+                       'c-apdu' is being sent.
+       * aid         : AID that identifies the applet on SecureElement
+       * appId       : Current appId obtained from 'Principal' obj
+       */
       cpmm.sendAsyncMessage("SE:TransmitAPDU", {
         resolverId: aResolverId,
         apdu: commandAPDU,
@@ -422,9 +468,21 @@ SEChannel.prototype = {
     });
   },
 
-  close: function() {
+  close: function close() {
     this._checkClosed();
     return PromiseHelpers._createSEPromise((aResolverId) => {
+      /**
+       * @params for 'SE:CloseChannel'
+       *
+       * resolverId  : ID that identifies this IPC request.
+       * type        : Reader type ('uicc' / 'eSE')
+       * sessionId   : ID that identifies the current ongoing session that
+                       this channel belongs to.
+       * channelToken: Token that identifies the current channel over which
+                       'c-apdu' is being sent.
+       * aid         : AID that identifies the applet on SecureElement
+       * appId       : Current appId obtained from 'Principal' obj
+       */
       cpmm.sendAsyncMessage("SE:CloseChannel", {
         resolverId: aResolverId,
         type: this.session.reader.type,
@@ -530,8 +588,14 @@ SEManager.prototype = {
      this._window = null;
   },
 
-  getSEReaders: function() {
+  getSEReaders: function getSEReaders() {
     return PromiseHelpers._createSEPromise((aResolverId) => {
+      /**
+       * @params for 'SE:GetSEReaders'
+       *
+       * resolverId  : ID that identifies this IPC request.
+       * appId       : Current appId obtained from 'Principal' obj
+       */
       cpmm.sendAsyncMessage("SE:GetSEReaders", {
         resolverId: aResolverId,
         appId: this._window.document.nodePrincipal.appId
@@ -545,7 +609,7 @@ SEManager.prototype = {
     let chromeObj = null;
     let contentObj = null;
     let resolver = null;
-    debug("receiveMessage(): " + aMessage.name + " " + JSON.stringify(aMessage.json));
+    debug("receiveMessage(): " + aMessage.name);
 
     if (data) {
       resolver = PromiseHelpers.takePromiseResolver(data.resolverId);
