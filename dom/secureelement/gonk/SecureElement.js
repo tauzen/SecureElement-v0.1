@@ -35,6 +35,9 @@ XPCOMUtils.defineLazyGetter(this, "SE", function() {
   return obj;
 });
 
+XPCOMUtils.defineLazyModuleGetter(this, "SEUtils",
+                                  "resource://gre/modules/SEUtils.jsm");
+
 // set to true in se_consts.js to see debug messages
 let DEBUG = SE.DEBUG_SE;
 
@@ -408,7 +411,7 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
     isValidAID: function(aid, data) {
       let regAid =
         this.appInfoMap[data.appId].sessions[data.sessionId].channels[data.channelToken].aid;
-      return this._compareAIDs(aid, regAid);
+      return SEUtils.arraysEqual(aid, regAid);
     },
 
     // Get the 'channel' associated for a given (appId, sessionId, channelToken)
@@ -451,10 +454,6 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
          allChannels.push(channel);
       }
       return  allChannels;
-    },
-
-    _compareAIDs: function(aid1, aid2) {
-      return (SE.gUtils.byteTohexString(aid1) === SE.gUtils.byteTohexString(aid2));
     },
 
     _getUUIDGenerator: function() {
@@ -576,7 +575,7 @@ XPCOMUtils.defineLazyGetter(this, "UiccConnector", function() {
 
       // TBD: Finally Perform checks with ACE module
 
-      let aidStr = SE.gUtils.byteTohexString(aid);
+      let aidStr = SEUtils.byteArrayToHexString(aid);
       let self = this;
       this._iccProvider.iccOpenChannel(PREFERRED_UICC_CLIENTID, aidStr, {
         notifyOpenChannelSuccess: function(channel) {
@@ -655,12 +654,13 @@ XPCOMUtils.defineLazyGetter(this, "UiccConnector", function() {
           commandData[offset] = command.data[offset];
           offset++;
         }
-        data = SE.gUtils.byteTohexString(commandData);
+        data = SEUtils.byteArrayToHexString(commandData);
       }
       if (data && appendLe) {
         // Append 'le' value to data
-        let leHexStr = SE.gUtils.byteTohexString(le & 0xFF) +
-                       SE.gUtils.byteTohexString((le >> 8) & 0xFF) ;
+        let leHexStr = SEUtils.byteArrayToHexString([
+          command.le & 0xFF, (command.le >> 8) & 0xFF
+        ]);
         data += leHexStr;
       }
       let channel = this._getChannelNumber(cla);
@@ -798,7 +798,7 @@ XPCOMUtils.defineLazyGetter(this, "UiccConnector", function() {
                                     response, callback);
           } else if (callback) {
             callback({ error: SE.ERROR_NONE, sw1: sw1, sw2: sw2,
-                       simResponse: SE.gUtils.hexStringToBytes(response) });
+                       simResponse: SEUtils.hexStringToByteArray(response) });
           }
         },
 
