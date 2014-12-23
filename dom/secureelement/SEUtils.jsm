@@ -10,7 +10,7 @@ this.SEUtils = {
   byteArrayToHexString: function byteArrayToHexString(array) {
     let hexStr = "";
 
-    let len = array ? array.length : 0;
+    let len = Array.isArray(array) ? array.length : 0;
     for (let i = 0; i < len; i++) {
       let hex = (array[i] & 0xff).toString(16);
       hex = (hex.length === 1) ? "0" + hex : hex;
@@ -21,10 +21,12 @@ this.SEUtils = {
   },
 
   hexStringToByteArray: function hexStringToByteArray(hexStr) {
-    let array = [];
+    if (typeof hexStr !== "string" || hexStr.length % 2 !== 0) {
+      return [];
+    }
 
-    let len = hexStr ? hexStr.length : 0;
-    for (let i = 0; i < len; i+=2) {
+    let array = [];
+    for (let i = 0, len = hexStr.length; i < len; i += 2) {
       array.push(parseInt(hexStr.substr(i, 2), 16));
     }
 
@@ -32,7 +34,7 @@ this.SEUtils = {
   },
 
   arraysEqual: function arraysEqual(a1, a2) {
-    if (!a1 || !a2) {
+    if (!Array.isArray(a1) || !Array.isArray(a2)) {
       return false;
     }
 
@@ -47,10 +49,6 @@ this.SEUtils = {
     }
 
     return true;
-  },
-
-  ensureIsArray: function ensureIsArray(obj) {
-    return Array.isArray(obj) ? obj : [obj];
   },
 
   /**
@@ -106,7 +104,13 @@ this.SEUtils = {
       }
 
       return result;
-    }
+    },
+
+    // simplifies working with parsed TLVs, since
+    // value does not have to be an Array
+    ensureIsArray: function ensureIsArray(obj) {
+      return Array.isArray(obj) ? obj : [obj];
+    },
   }
 };
 
