@@ -28,8 +28,8 @@ this.DEBUG_SE = DEBUG_ALL || false ;
 // However,Other SE types may support upto max 4 (including '0').
 this.MAX_CHANNELS_ALLOWED_PER_SESSION = 4;
 
-this.TYPE_BASIC_CHANNEL = 0;
-this.TYPE_LOGICAL_CHANNEL = 1;
+this.TYPE_BASIC_CHANNEL = "basic";
+this.TYPE_LOGICAL_CHANNEL = "logical";
 
 this.BASIC_CHANNEL = 0;
 

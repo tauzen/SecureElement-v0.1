@@ -14,4 +14,4 @@ component {1c7bdba3-cd35-4f8b-a546-55b3232457d5} DOMSecureElement.js
 contract @mozilla.org/secureelement/SEReader;1 {1c7bdba3-cd35-4f8b-a546-55b3232457d5}
 
 component {4a8b6ec0-4674-11e4-916c-0800200c9a66} DOMSecureElement.js
-contract @mozilla.org/navigatorSEManager;1 {4a8b6ec0-4674-11e4-916c-0800200c9a66}
+contract @mozilla.org/secureelement/SEManager;1 {4a8b6ec0-4674-11e4-916c-0800200c9a66}

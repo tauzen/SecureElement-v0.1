@@ -102,23 +102,22 @@ SEConnectorFactory.prototype = {
  * An application (appId / content) can open multiple sessions.
  * In turn each session can open multiple channels with the secure element.
  * Following are its (key,value) attributes and brief description :
- * (key)'appId'    : Key used mainly to retrieve the 'session obj' (sessions).
- * 'target'        : Target obj that identifies the content target to notify to
- * 'readerTypes'   : Types ('uicc' / 'eSE') that are available to the
-                     application (appId)
- * 'sessions'      : Dictionary obj that holds all the sessions opened
-                     by the application (appId)
- * (key)'sessionId': Key used to retrieve the 'session info ' such as
-                     'type' & 'channels'
- * 'type'          : Session type indicating 'uicc' (or) 'eSE'
- * 'channels'      : Dictionary obj that holds all the channels opened by the session.
- * (key)'token'    : Key used to retrieve 'channel info' such as 'aid' ,
-                     'channel Number'
- *                   and the 'type' of channel
- * 'type'          : Channel type indicating if it is 'logical' / 'basic'
- * 'aid'           : AID that identifies the opened channel.
- * 'channel'       : The channel number that was returned by lower layers upon
-                     successfully opening a channel
+ * (key)'appId'       : Key used mainly to retrieve the 'session obj' (sessions).
+ * 'target'           : Target obj that identifies the content target to notify to
+ * 'readerTypes'      : Types ('uicc' / 'eSE') that are available to the
+                        application (appId)
+ * 'sessions'         : Dictionary obj that holds all the sessions opened
+                        by the application (appId)
+ * (key)'sessionToken': Key used to retrieve the 'session info ' such as
+                        'type' & 'channels'
+ * 'type'             : Session type indicating 'uicc' (or) 'eSE'
+ * 'channels'         : Dictionary obj that holds all the channels opened by the session.
+ * (key)'token'       : Key used to retrieve 'channel info' such as 'aid' ,
+                        'channel Number' and the 'type' of channel
+ * 'type'             : Channel type indicating if it is 'logical' / 'basic'
+ * 'aid'              : AID that identifies the opened channel.
+ * 'channel'          : The channel number that was returned by lower layers upon
+                        successfully opening a channel
  */
 XPCOMUtils.defineLazyGetter(this, "gMap", function() {
   return {
@@ -130,7 +129,7 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
         target         : msg.target
         readerTypes    : [] // 'uicc','eSE'
         sessions       : {
-           [sessionId : // (key = '1111')
+           [sessionToken : // (key = '1111')
               type :
               channels : {
                  [token: // (key = 'aaaaa')
@@ -146,7 +145,7 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
                     aid :
                      channel :]
               }] // End of 'channels'
-           [sessionId : // (key = '22222')
+           [sessionToken : // (key = '22222')
               type :
               channels : {
                  [token: // (key = 'ddddd')
@@ -258,29 +257,29 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
      * Session related functions
      */
 
-    // Add a new sessionId for a given appId
+    // Add a new sessionToken for a given appId
     addSession: function(msg) {
       let appId = msg.appId;
       let type = msg.type;
-      // Generate a unique sessionID and send it to content. All the subsequent
+      // Generate a unique sessionToken and send it to content. All the subsequent
       // operations may happen on this session.
-      let sessionId = this._getUUIDGenerator().generateUUID().toString();
+      let sessionToken = this._getUUIDGenerator().generateUUID().toString();
 
       let appInfo = this.appInfoMap[appId];
       if (!appInfo) {
         debug("Unable to add session: " + appId);
         return null;
       }
-      appInfo.sessions[sessionId] = { type: type,
+      appInfo.sessions[sessionToken] = { type: type,
                                       channels: {} };
-      return sessionId;
+      return sessionToken;
     },
 
-    // Remove the sessionId from given appId
+    // Remove the sessionToken from given appId
     removeSession: function(msg) {
       let sessions = this.appInfoMap[msg.appId].sessions;
-      if (sessions[msg.sessionId].type === msg.type)
-        delete sessions[msg.sessionId];
+      if (sessions[msg.sessionToken].type === msg.type)
+        delete sessions[msg.sessionToken];
     },
 
     // Removes / Resets all sessions for a given appId.
@@ -291,32 +290,32 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
         allSessions = {};
     },
 
-    // Returns true if the given sessionId is already registered / valid one,
+    // Returns true if the given sessionToken is already registered / valid one,
     // else returns false
     isValidSession: function(data) {
-      return (this.appInfoMap[data.appId].sessions[data.sessionId] ? true : false);
+      return (this.appInfoMap[data.appId].sessions[data.sessionToken] ? true : false);
     },
 
-    // Gets channel count associated with the 'sessionId'
-    getChannelCountBySessionId: function(sessionId, appId) {
-      let session = this.appInfoMap[appId].sessions[sessionId];
+    // Gets channel count associated with the 'sessionToken'
+    getChannelCountBySessionToken: function(sessionToken, appId) {
+      let session = this.appInfoMap[appId].sessions[sessionToken];
       if (!session) {
-        debug("Unable to get channel count : " + appId + " sessionId: " + sessionId);
+        debug("Unable to get channel count : " + appId + " sessionToken: " + sessionToken);
         return 0;
       }
       return Object.keys(session.channels).length;
     },
 
-    // Gets all the channels associated with the 'sessionId'
-    getAllChannelsBySessionId: function(sessionId, appId) {
+    // Gets all the channels associated with the 'sessionToken'
+    getAllChannelsBySessionToken: function(sessionToken, appId) {
       let appInfo = this.appInfoMap[appId];
       if (!appInfo) {
-        debug("Unable to get channels for sesssionId: " + sessionId + ", AppId : " + appId);
+        debug("Unable to get channels for sesssionId: " + sessionToken + ", AppId : " + appId);
         return [];
       }
-      let sessions = appInfo.sessions[sessionId];
+      let sessions = appInfo.sessions[sessionToken];
       if (!sessions) {
-        debug("Unable to get all channels : " + appId + " sessionId: " + sessionId);
+        debug("Unable to get all channels : " + appId + " sessionToken: " + sessionToken);
         return [];
       }
       return this._getChannels(sessions.channels);
@@ -326,7 +325,7 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
      * channel related functions
      */
 
-    // Add new channel to a given sessionId. Upon successfully adding the entry
+    // Add new channel to a given sessionToken. Upon successfully adding the entry
     // this function will return the 'token'
     addChannel: function(channel, msg) {
       let appId = msg.appId;
@@ -340,9 +339,9 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
         debug("Unable to add channel: " + appId);
         return null;
       }
-      let session = appInfo.sessions[msg.sessionId];
+      let session = appInfo.sessions[msg.sessionToken];
       if (!session) {
-        debug("Unable to add channel: Inavlid session, " + msg.sessionId +
+        debug("Unable to add channel: Inavlid session, " + msg.sessionToken +
               " appId:" + appId);
         return null;
       }
@@ -366,9 +365,9 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
       let targets = this.appInfoMap;
       Object.keys(targets).forEach((appId) => {
         let sessions = targets[appId].sessions;
-        Object.keys(sessions).forEach((sessionId) => {
-          if (sessions[sessionId].type === type) {
-            let channels = sessions[sessionId].channels;
+        Object.keys(sessions).forEach((sessionToken) => {
+          if (sessions[sessionToken].type === type) {
+            let channels = sessions[sessionToken].channels;
             Object.keys(channels).forEach((token) => {
               if (channels[token].channel ===  channel) {
                 // We have found the match
@@ -383,16 +382,16 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
     },
 
     // Validates the given 'aid' by comparing the it with the one already
-    // registered for the given (appId, sessionId, channelToken)
+    // registered for the given (appId, sessionToken, channelToken)
     isValidAID: function(aid, data) {
       let regAid =
-        this.appInfoMap[data.appId].sessions[data.sessionId].channels[data.channelToken].aid;
+        this.appInfoMap[data.appId].sessions[data.sessionToken].channels[data.channelToken].aid;
       return SEUtils.arraysEqual(aid, regAid);
     },
 
-    // Get the 'channel' associated for a given (appId, sessionId, channelToken)
+    // Get the 'channel' associated for a given (appId, sessionToken, channelToken)
     getChannel: function(data) {
-      return this.appInfoMap[data.appId].sessions[data.sessionId].channels[data.channelToken].channel;
+      return this.appInfoMap[data.appId].sessions[data.sessionToken].channels[data.channelToken].channel;
     },
 
     /*
@@ -449,10 +448,10 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
         }
         debug("       readerTypes : " + readerTypes);
         let sessions = targets[appId].sessions;
-        Object.keys(sessions).forEach((sessionId) => {
-          debug("       sessionId key : " + sessionId);
-          debug("                      type : " + sessions[sessionId].type);
-          let channels = sessions[sessionId].channels;
+        Object.keys(sessions).forEach((sessionToken) => {
+          debug("       sessionToken key : " + sessionToken);
+          debug("                      type : " + sessions[sessionToken].type);
+          let channels = sessions[sessionToken].channels;
           Object.keys(channels).forEach((token) => {
             debug("                          token key : " + token);
             debug("                                    Type : " + channels[token].type);
@@ -550,7 +549,7 @@ XPCOMUtils.defineLazyGetter(this, "UiccConnector", function() {
             if (callback) {
               callback({ error: SE.ERROR_NONE, channel: channel,
                          isBasicChannel: (channel === SE.BASIC_CHANNEL),
-                         openResponse: result.simResponse });
+                         openResponse: result.response });
             }
           });
         },
@@ -715,7 +714,7 @@ XPCOMUtils.defineLazyGetter(this, "UiccConnector", function() {
         data: null
       };
       this.doTransmit(openResponseCommand, function(result) {
-        if (DEBUG) debug('GET Response : ' + result.simResponse);
+        if (DEBUG) debug('GET Response : ' + result.response);
         if (callback) callback(result);
       });
     },
@@ -727,14 +726,14 @@ XPCOMUtils.defineLazyGetter(this, "UiccConnector", function() {
 
       this._iccProvider.iccExchangeAPDU(clientId, channel,
                                   (cla & 0xFC), ins, p1, p2, p3, data, {
-        notifyExchangeAPDUResponse: function(sw1, sw2, simResponse) {
+        notifyExchangeAPDUResponse: function(sw1, sw2, response) {
 
           if (DEBUG) debug("sw1 : " + sw1 + ", sw2 : " + sw2 +
-                           ", simResponse : " + simResponse);
+                           ", response : " + response);
 
           // Copy the response
-          response = (simResponse && simResponse.length > 0) ?
-                      simResponse + appendResponse : appendResponse;
+          response = (response && response.length > 0) ?
+                      response + appendResponse : appendResponse;
 
           // According to ETSI TS 102 221 , See section 7.2.2.3.1:
           // Enforce 'Procedure bytes' checks before notifying the callback. Note that
@@ -765,14 +764,14 @@ XPCOMUtils.defineLazyGetter(this, "UiccConnector", function() {
                                     response, callback);
           } else if (callback) {
             callback({ error: SE.ERROR_NONE, sw1: sw1, sw2: sw2,
-                       simResponse: SEUtils.hexStringToByteArray(response) });
+                       response: SEUtils.hexStringToByteArray(response) });
           }
         },
 
         notifyError: function(reason) {
           debug('Failed to trasmit C-APDU over the channel #  : ' + channel +
                 ', Rejected with Reason : ' + reason);
-          if (callback) callback({ error: SE.ERROR_IO, reason: reason, simResponse: [] });
+          if (callback) callback({ error: SE.ERROR_IO, reason: reason, response: [] });
         }
       });
     },
@@ -839,7 +838,7 @@ function SecureElementManager() {
   this.handlers['SE:CloseChannel'] = this.closeChannel;
   this.handlers['SE:TransmitAPDU'] = this.transmit;
   this.handlers['SE:CloseAllByReader'] = this.closeAllChannelsByReader;
-  this.handlers['SE:CloseAllBySession'] = this.closeAllChannelsBySessionId;
+  this.handlers['SE:CloseAllBySession'] = this.closeAllChannelsBySessionToken;
 
   Services.obs.addObserver(this, NS_XPCOM_SHUTDOWN_OBSERVER_ID, false);
 }
@@ -887,12 +886,12 @@ SecureElementManager.prototype = {
   _checkErrorsForOpenChannel(msg) {
     let error = SE.ERROR_NONE;
     if (!gMap.isValidSession(msg)) {
-      debug("OpenChannel: Invalid Session! " + msg.sessionId +
+      debug("OpenChannel: Invalid Session! " + msg.sessionToken +
 	    " for appId : " + msg.appId);
       return SE.ERROR_GENERIC;
     }
 
-    if (gMap.getChannelCountBySessionId(msg.sessionId, msg.appId) >=
+    if (gMap.getChannelCountBySessionToken(msg.sessionToken, msg.appId) >=
 	  SE.MAX_CHANNELS_ALLOWED_PER_SESSION) {
       debug("Max channels per session exceed !!!");
       return SE.ERROR_GENERIC;
@@ -904,14 +903,14 @@ SecureElementManager.prototype = {
   _checkErrorsForTransmit(msg) {
     let error = SE.ERROR_NONE;
     if (!gMap.isValidSession(msg)) {
-      debug("Transmit: Invalid Session! " + msg.sessionId +
+      debug("Transmit: Invalid Session! " + msg.sessionToken +
 	    " for appId : " + msg.appId);
       return SE.ERROR_GENERIC;
     }
 
     if (!gMap.isValidAID(msg.aid, msg)) {
-      debug("Invalid AID - " + msg.aid + ", [appId: " + msg.appId + ", sessionId: " +
-	     msg.sessionId + ", token: " + msg.channelToken + " ]");
+      debug("Invalid AID - " + msg.aid + ", [appId: " + msg.appId + ", sessionToken: " +
+	     msg.sessionToken + ", token: " + msg.channelToken + " ]");
       return SE.ERROR_GENERIC;
     }
     return error;
@@ -920,14 +919,14 @@ SecureElementManager.prototype = {
   _checkErrorsForCloseChannel(msg) {
     let error = SE.ERROR_NONE;
     if (!gMap.isValidSession(msg)) {
-      debug("CloseChannel: Invalid Session " + msg.sessionId +
+      debug("CloseChannel: Invalid Session " + msg.sessionToken +
 	    " for appId : " + msg.appId);
       return SE.ERROR_GENERIC;
     }
 
     if (!gMap.isValidAID(msg.aid, msg)) {
       debug("Invalid AID - " + msg.aid + ", [appId: " + msg.appId +
-	    ", sessionId: " + msg.sessionId + ", token: " + msg.channelToken + " ]");
+	    ", sessionToken: " + msg.sessionToken + ", token: " + msg.channelToken + " ]");
       return SE.ERROR_GENERIC;
     }
     return error;
@@ -1031,9 +1030,9 @@ SecureElementManager.prototype = {
   },
 
   // Closes all the channels opened by a session
-  closeAllChannelsBySessionId: function(data, callback) {
+  closeAllChannelsBySessionToken: function(data, callback) {
     return this._closeAll(data.type,
-      gMap.getAllChannelsBySessionId(data.sessionId, data.appId), callback);
+      gMap.getAllChannelsBySessionToken(data.sessionToken, data.appId), callback);
   },
 
   // Closes all the channels opened by the reader
@@ -1099,7 +1098,7 @@ SecureElementManager.prototype = {
       this.connectorFactory.getConnector(msg.json.type).isSEPresent()) {
       promiseStatus = "Resolved";
       // Add the result
-      options['result'] = {sessionId: gMap.addSession(msg.json)};
+      options['result'] = {sessionToken: gMap.addSession(msg.json)};
     }
     msg.target.sendAsyncMessage(msg.name + promiseStatus, options);
   },
