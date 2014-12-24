@@ -835,11 +835,11 @@ function SecureElementManager() {
     registerConnectorListener(this.onSEChangeCb);
 
   // Initialize handlers array
-  this.handlers['SE:OpenChannel'] = openChannel;
-  this.handlers['SE:CloseChannel'] = closeChannel;
-  this.handlers['SE:TransmitAPDU'] = transmit;
-  this.handlers['SE:CloseAllByReader'] = closeAllChannelsByReader;
-  this.handlers['SE:CloseAllBySession'] = closeAllChannelsBySessionId;
+  this.handlers['SE:OpenChannel'] = this.openChannel;
+  this.handlers['SE:CloseChannel'] = this.closeChannel;
+  this.handlers['SE:TransmitAPDU'] = this.transmit;
+  this.handlers['SE:CloseAllByReader'] = this.closeAllChannelsByReader;
+  this.handlers['SE:CloseAllBySession'] = this.closeAllChannelsBySessionId;
 
   Services.obs.addObserver(this, NS_XPCOM_SHUTDOWN_OBSERVER_ID, false);
 }
