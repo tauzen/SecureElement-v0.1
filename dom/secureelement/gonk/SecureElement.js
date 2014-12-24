@@ -117,7 +117,7 @@ SEConnectorFactory.prototype = {
  *                   and the 'type' of channel
  * 'type'          : Channel type indicating if it is 'logical' / 'basic'
  * 'aid'           : AID that identifies the opened channel.
- * ''channel' : The channel number that was returned by lower layers upon
+ * 'channel'       : The channel number that was returned by lower layers upon
                      successfully opening a channel
  */
 XPCOMUtils.defineLazyGetter(this, "gMap", function() {
@@ -868,11 +868,11 @@ function SecureElementManager() {
     registerConnectorListener(this.onSEChangeCb);
 
   // Initialize handlers array
-  this.handlers['SE:OpenChannel'] = this.openChannel;
-  this.handlers['SE:CloseChannel'] = this.closeChannel;
-  this.handlers['SE:TransmitAPDU'] = this.transmit;
-  this.handlers['SE:CloseAllByReader'] = this.closeAllChannelsByReader;
-  this.handlers['SE:CloseAllBySession'] = this.closeAllChannelsBySessionId;
+  this.handlers['SE:OpenChannel'] = openChannel;
+  this.handlers['SE:CloseChannel'] = closeChannel;
+  this.handlers['SE:TransmitAPDU'] = transmit;
+  this.handlers['SE:CloseAllByReader'] = closeAllChannelsByReader;
+  this.handlers['SE:CloseAllBySession'] = closeAllChannelsBySessionId;
 
   Services.obs.addObserver(this, NS_XPCOM_SHUTDOWN_OBSERVER_ID, false);
 }
