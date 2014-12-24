@@ -10,7 +10,7 @@ this.SEUtils = {
   byteArrayToHexString: function byteArrayToHexString(array) {
     let hexStr = "";
 
-    let len = Array.isArray(array) ? array.length : 0;
+    let len = array ? array.length : 0;
     for (let i = 0; i < len; i++) {
       let hex = (array[i] & 0xff).toString(16);
       hex = (hex.length === 1) ? "0" + hex : hex;
@@ -34,7 +34,7 @@ this.SEUtils = {
   },
 
   arraysEqual: function arraysEqual(a1, a2) {
-    if (!Array.isArray(a1) || !Array.isArray(a2)) {
+    if (!a1 || !a2) {
       return false;
     }
 

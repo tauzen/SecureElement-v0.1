@@ -22,7 +22,7 @@ add_test(function test_byteArrayToHexString() {
   ok(hexStr === VALID_HEX_STR, 
      "should convert byte Array to uppercased hex string");
 
-  [[], null, undefined, "test", {}].forEach((input) => {
+  [[], null, undefined].forEach((input) => {
     hexStr = SEUtils.byteArrayToHexString(input);
     ok(hexStr === "", "invalid arg:" + input + " should return empty string");
   });
@@ -39,7 +39,7 @@ add_test(function test_hexStringToByteArray() {
   ok(SEUtils.arraysEqual(byteArr, VALID_BYTE_ARR),
      "should convert lowercased string to byte Array");
 
-  ["", null, undefined, {}, [], "123"].forEach((input) => {
+  ["", null, undefined, "123"].forEach((input) => {
     byteArr = SEUtils.hexStringToByteArray(input);
     ok(Array.isArray(byteArr) && byteArr.length === 0,
        "invalid arg: " + input + " should be empty Array");
@@ -57,7 +57,7 @@ add_test(function test_arraysEqual() {
        "should return false when Arrays not equal");
   });
 
-  [null, undefined, "abc"].forEach((input) => {
+  [null, undefined].forEach((input) => {
     ok(!SEUtils.arraysEqual([1, 2, 3], input),
        "should return false when comparing Array with invalid argument");
 
