@@ -224,51 +224,27 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
       }
     },
 
-    // Gets all the channels in an array for the given appId
-    getAllChannelsByAppId: function(appId) {
-      let  allChannels = [];
+    // Gets all the channels in an array for the given appId and
+    // optional reader type
+    getAllChannelsByAppIdType: function(appId, type) {
       let appInfo = this.appInfoMap[appId];
       if (!appInfo) {
-        debug("Unable to get channels : " + appId);
-        return  allChannels;
+        debug("Unable to get channels : " + appId + ", type:" + type);
+        return [];
       }
-      let sessions = appInfo.sessions;
-      let sessionKeys = Object.keys(sessions);
-      for (let i = 0; i < sessionKeys.length; i++) {
-        let aKey = sessionKeys[i];
-        let channels = sessions[aKey].channels;
-        if (channels) {
-           allChannels.concat(this._getChannels(channels));
-        }
-      }
-      return  allChannels;
-    },
 
-    /**
-     * Reader related functions
-     */
-
-    // Gets all the channels in an array for the given readerType
-    getAllChannelsByReaderType: function(type, appId) {
-      let  allChannels = [];
-      let appInfo = this.appInfoMap[appId];
-      if (!appInfo) {
-        debug("Unable to get channels : " + appId);
-        return  allChannels;
-      }
+      let allChannels = [];
       let sessions = appInfo.sessions;
-      let sessionKeys = Object.keys(sessions);
-      for (let i = 0; i < sessionKeys.length; i++) {
-        let aKey = sessionKeys[i];
-        // If types don't match , move to the next sessionKey
-        if (sessions[aKey].type !== type)
-          continue;
-        let channels = sessions[aKey].channels;
-        if (channels) {
-            allChannels.concat(this._getChannels(channels));
+      Object.keys(sessions).forEach((sKey) => {
+        if (type && sessions[sKey].type !== type) {
+          return;
         }
-      }
-      return  allChannels;
+
+        let channels = this._getChannels(sessions[sKey].channels);
+        allChannels = allChannels.concat(channels);
+      });
+
+      return allChannels;
     },
 
     // Checks if the 'readerType' is a registered / supported one or not for
@@ -443,17 +419,8 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
     // This function returns an array of channels [2,3,4]. If no 'channel entry'
     // exists in 'channels it returns an emppty array '[]'
     _getChannels: function(channels) {
-      let  allChannels = [];
-      if (!channels)
-        return  allChannels;
-
-      let channelKeys = Object.keys(channels);
-      for (let i = 0; i < channelKeys.length; i++) {
-        let aChannelKey = channelKeys[i]; // token
-        let  channel = channels[aChannelKey].channel;
-         allChannels.push(channel);
-      }
-      return  allChannels;
+      channels = channels || {};
+      return Object.keys(channels).map(cKey => channels[cKey].channel);
     },
 
     _getUUIDGenerator: function() {
@@ -995,7 +962,7 @@ SecureElementManager.prototype = {
 
   _closeAllChannelsByAppId: function(data, callback) {
     return this._closeAll(data.type,
-      gMap.getAllChannelsByAppId(data.appId), callback);
+      gMap.getAllChannelsByAppIdType(data.appId), callback);
   },
 
   // Following functions are handlers for requests from content
@@ -1072,7 +1039,7 @@ SecureElementManager.prototype = {
   // Closes all the channels opened by the reader
   closeAllChannelsByReader: function(data, callback) {
     return this._closeAll(data.type,
-      gMap.getAllChannelsByReaderType(data.type, data.appId), callback);
+      gMap.getAllChannelsByAppIdType(data.appId, data.type), callback);
   },
 
   onSEChangeCb: function(type, isPresent) {
