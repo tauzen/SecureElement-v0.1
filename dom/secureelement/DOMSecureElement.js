@@ -74,12 +74,12 @@ let SEStateHelper = {
 
   addReaderObjs(readerObjs) {
     for (let index = 0; index < readerObjs.length; index++) {
-      let aReaderObj = readerObjs[index];
+      let readerObj = readerObjs[index];
       let readerInfo = {
-        reader: aReaderObj,
+        reader: readerObj,
         sessions: {}
       };
-      this._stateInfoMap[aReaderObj.type] = readerInfo;
+      this._stateInfoMap[readerObj.type] = readerInfo;
     }
   },
 
@@ -648,9 +648,9 @@ SEManager.prototype = {
     switch (aMessage.name) {
       case "SE:GetSEReadersResolved":
         let readers = [];
-        for (let i = 0; i < result.readers.length; i++) {
+        for (let i = 0; i < result.readerTypes.length; i++) {
           chromeObj = new SEReader();
-          chromeObj.initialize(this._window, result.readers[i]);
+          chromeObj.initialize(this._window, result.readerTypes[i]);
           contentObj = this._window.SEReader._create(this._window, chromeObj);
           readers.push(contentObj);
         }

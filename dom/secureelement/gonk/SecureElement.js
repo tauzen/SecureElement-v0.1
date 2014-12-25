@@ -936,13 +936,13 @@ SecureElementManager.prototype = {
   _getAvailableReaders: function() {
     // TBD: Return the list of readers only if the calling application has
     // the permissions to connect to.
-    let readers = [];
+    let readerTypes = [];
     if (this.connectorFactory.getConnector(SE.TYPE_UICC).isSEPresent()) {
       // TBD: Slot based readerNames support. Instead of returning 'uicc',
       // return 'uicc<slot#>' etc...
-      readers.push(SE.TYPE_UICC);
+      readerTypes.push(SE.TYPE_UICC);
     }
-    return readers;
+    return readerTypes;
   },
 
   _closeAll: function(type, channels, callback) {
@@ -1071,14 +1071,14 @@ SecureElementManager.prototype = {
 
   handleGetSEReaders: function(msg) {
     let promiseStatus = "Rejected";
-    let seReaders = this._getAvailableReaders();
+    let seReaderTypes = this._getAvailableReaders();
     let options = {
       metadata: msg.json
     };
-    if (seReaders.length > 0) {
-      gMap.registerSecureElementTarget(msg, seReaders);
+    if (seReaderTypes.length > 0) {
+      gMap.registerSecureElementTarget(msg, seReaderTypes);
       // Add the result
-      options['result'] = {readers: seReaders};
+      options['result'] = {readerTypes: seReaderTypes};
       promiseStatus = "Resolved";
     }
     msg.target.sendAsyncMessage(msg.name + promiseStatus, options);
