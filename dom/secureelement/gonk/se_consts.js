@@ -68,35 +68,5 @@ this.ERROR_GENERIC            = "SEGenericError";
 this.TYPE_UICC = "uicc";
 this.TYPE_ESE = "eSE";
 
-this.gUtils = {
-  hexStringToBytes: function(hexString) {
-    let bytes = [];
-    let length = hexString.length;
-
-    for (let i = 0; i < length; i += 2) {
-      bytes.push(Number.parseInt(hexString.substr(i, 2), 16));
-    }
-
-    return bytes;
-  },
-
-  byteTohexString: function(array) {
-    let hexString = "";
-    let hex;
-
-    if (!array || array.length === 0)
-      return hexString;
-
-    for (let i = 0; i < array.length; i++) {
-      hex = array[i].toString(16).toUpperCase();
-      if (hex.length === 1) {
-        hexString += "0";
-      }
-      hexString += hex;
-    }
-    return hexString;
-  }
-};
-
 // Allow this file to be imported via Components.utils.import().
 this.EXPORTED_SYMBOLS = Object.keys(this);
