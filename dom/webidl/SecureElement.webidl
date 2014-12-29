@@ -67,31 +67,19 @@ interface SESession {
 
   /**
    * Opens a communication logical channel to an application on Secure Element identified by the AID.
-   * The 'aid' can be null, implying that no Applet is selected on this channel. In such an event,
-   * the default Applet is selected.
+   * The 'aid' can be null for some secure elements.
    *
    * @param aid
-   *     Application Identifier of the Card Applet on the secure element. If 'null'
-   *     then default card applet is selected
+   *     Application Identifier of the Card Applet on the secure element.
+   *     If the 'aid' is null :
+   *       For secure element 'eSE', the default applet is selected.
+   *       For secure element 'uicc', the request will be immediately rejected.
+   *     Length of 'aid should be between 5 and 16.
    *
    * @return If the operation is successful the promise is resolved with an instance of SEChannel.
    */
   [Throws]
   Promise<SEChannel> openLogicalChannel(Uint8Array? aid);
-
-  /**
-   * Opens a basic channel to an application on Secure Element. Once the channel has been opened by the application,
-   * it shall be considered as "locked" by this device application, and other calls to this method will return null,
-   * until the channel is closed. Also note that the basic channel of the UICC is normally reserved for baseband processor.
-   *
-   * @param aid
-   *     Application Identifier of the Card Applet on the secure element.
-   *
-   * @return If the operation is successful the promise is resolved with an instance of SEChannel.
-   * NOTE: Some secure elements may deny opening a basic channel. In such a scenario, promise is resolved with SEIoError.
-   */
-  [Throws]
-  Promise<SEChannel> openBasicChannel(Uint8Array aid);
 
   /**
    * Close all active channels associated with this session.

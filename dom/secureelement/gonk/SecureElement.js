@@ -54,7 +54,8 @@ const SE_IPC_SECUREELEMENT_MSG_NAMES = [
   "SE:CloseChannel",
   "SE:TransmitAPDU",
   "SE:CloseAllByReader",
-  "SE:CloseAllBySession"
+  "SE:CloseAllBySession",
+  "SE:IsSEPresent"
 ];
 
 const SECUREELEMENT_CONTRACTID = "@mozilla.org/secureelement;1";
@@ -79,8 +80,8 @@ function SEConnectorFactory() {}
  * - doCloseAll([channels], callback)
  * - isSEPresent()
  * AND expose atleast the following public functions:
- * - registerConnectorListener(listener)
- * - unregisterConnectorListener()
+ * - start()
+ * - stop()
  */
 SEConnectorFactory.prototype = {
 
@@ -469,8 +470,8 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
 /**
  * 'UiccConnector' object is a wrapper over iccProvider's channel management
  * related interfaces. It also implements 'nsIIccListener' to monitor the state of
- * 'uicc' card. It exposes two public functions to registerConnectorListener()
- * / unregisterConnectorListener monitoring the uicc card state changes.
+ * 'uicc' card. It exposes two public functions to start()
+ * and stop() monitoring the uicc card state changes.
  */
 XPCOMUtils.defineLazyGetter(this, "UiccConnector", function() {
   return {
@@ -503,30 +504,33 @@ XPCOMUtils.defineLazyGetter(this, "UiccConnector", function() {
     notifyIccInfoChanged: function() {},
 
     // This function acts as a trigger to listen on 'nsIIccListener' callbacks
-    // It also provides a callback for the consumers of this function to listen on
-    // if a given SE is present or not.
-    registerConnectorListener: function(listener) {
+    start: function() {
       this._getProvider().registerIccMsg(PREFERRED_UICC_CLIENTID, this);
 
       // Update the state in order to avoid race condition.
       // By this time, 'notifyCardStateChanged' could have happened
       this._isUiccPresent = this._getCardState();
-      this.notifyOnSEPresent = listener;
     },
 
-    unregisterConnectorListener: function() {
+    stop: function() {
       // Detach the listener to UICC state changes
       this._getProvider().unregisterIccMsg(PREFERRED_UICC_CLIENTID, this);
-      this.notifyOnSEPresent = null;
     },
 
     isSEPresent: function() {
       return this._isUiccPresent;
     },
 
-    doOpenChannel: function(aid, callback) {
-      let aidLen = aid ? aid.length : 0;
+    _checkSEPresence: function _checkSEPresence() {
+      if (!this._isUiccPresent) {
+        throw new Error(SE.ERROR_BADSTATE + "UICC Secure Element is not present!");
+      }
+    },
 
+    doOpenChannel: function(aid, callback) {
+      this._checkSEPresence();
+
+      let aidLen = aid ? aid.length : 0;
       if (aidLen === 0) {
         // According to SIMalliance_OpenMobileAPI v3 draft,
         // it is recommended not to support it.
@@ -564,10 +568,12 @@ XPCOMUtils.defineLazyGetter(this, "UiccConnector", function() {
     },
 
     doTransmit: function(command, callback) {
-      let cla = command.cla & 0xFF;
-      let ins = command.ins & 0xFF;
-      let p1 = command.p1 & 0xFF;
-      let p2 = command.p2 & 0xFF;
+      this._checkSEPresence();
+
+      let cla = command.cla;
+      let ins = command.ins;
+      let p1 = command.p1;
+      let p2 = command.p2;
 
       let appendLe = (command.data !== null) && (command.le !== -1);
       // Note that P3 of the C-TPDU is set to ‘00’ in Case 1 (only headers) scenarios
@@ -640,11 +646,19 @@ XPCOMUtils.defineLazyGetter(this, "UiccConnector", function() {
     },
 
     doCloseChannel: function(channel, callback) {
-      this.doCloseAll([channel],
-                       callback);
+      try {
+        this.doCloseAll([channel], callback);
+      } catch (error) {
+        if (DEBUG) {
+	  debug("Exception thrown while 'doCloseChannel' "+ error);
+	  if (callback) callback({ error: error });
+        }
+      }
     },
 
     doCloseAll: function(channels, callback) {
+      this._checkSEPresence();
+
       let closedChannels = [];
       if (!channels || channels.length === 0) {
         if (callback)
@@ -830,8 +844,7 @@ function SecureElementManager() {
   this._registerMessageListeners();
   this.connectorFactory = new SEConnectorFactory();
   // This is needed for UiccConnector to start listening on uicc state changes
-  this.connectorFactory.getConnector(SE.TYPE_UICC).
-    registerConnectorListener(this.onSEChangeCb);
+  this.connectorFactory.getConnector(SE.TYPE_UICC).start();
 
   // Initialize handlers array
   this.handlers['SE:OpenChannel'] = this.openChannel;
@@ -855,14 +868,11 @@ SecureElementManager.prototype = {
 
   connectorFactory: null,
 
-  onSEChangeCb: null,
-
   handlers: [],
 
   _shutdown: function() {
     this.secureelement = null;
-    this.connectorFactory.getConnector(SE.TYPE_UICC).
-      unregisterConnectorListener();
+    this.connectorFactory.getConnector(SE.TYPE_UICC).stop();
     this.connectorFactory = null;
     Services.obs.removeObserver(this, NS_XPCOM_SHUTDOWN_OBSERVER_ID);
     this._unregisterMessageListeners();
@@ -947,16 +957,23 @@ SecureElementManager.prototype = {
 
   _closeAll: function(type, channels, callback) {
     let connector = this.connectorFactory.getConnector(type);
-    connector.doCloseAll(channels, function(result) {
-      // Remove all the channel entries from the map, since these channels have
-      // been successfully closed
-      for (let i = 0; i < result.channels.length; i++) {
-	gMap.removeChannel(result.channels[i], type);
+    try {
+      connector.doCloseAll(channels, function(result) {
+        // Remove all the channel entries from the map, since these channels have
+        // been successfully closed
+        for (let i = 0; i < result.channels.length; i++) {
+	  gMap.removeChannel(result.channels[i], type);
+        }
+        // Do not expose removed channels to content
+        delete result.channels;
+        if (callback) callback(result);
+      });
+    } catch (error) {
+      if (DEBUG) {
+	debug("Exception thrown while 'doClose' "+ error);
+	if (callback) callback({ error: error });
       }
-      // Do not expose removed channels to content
-      delete result.channels;
-      if (callback) callback(result);
-    });
+    }
   },
 
   _closeAllChannelsByAppId: function(data, callback) {
@@ -1039,19 +1056,6 @@ SecureElementManager.prototype = {
   closeAllChannelsByReader: function(data, callback) {
     return this._closeAll(data.type,
       gMap.getAllChannelsByAppIdType(data.appId, data.type), callback);
-  },
-
-  onSEChangeCb: function(type, isPresent) {
-    let targets = gMap.appInfoMap;
-    Object.keys(targets).forEach((aKey) => {
-      let targetInfo = targets[aKey];
-      if (targetInfo) {
-	let notify = { result : { type: type,
-	                          present: isPresent }
-	             };
-	targetInfo.target.sendAsyncMessage("SE:NotifySEPresent", notify);
-      }
-    });
   },
 
   // 1. Query the map to get 'appInfo' based on 'msg.target'.
@@ -1155,6 +1159,8 @@ SecureElementManager.prototype = {
       case "SE:CloseAllByReader":
 	this.hanldeDOMRequest(msg);
 	break;
+      case "SE:IsSEPresent":
+        return this.connectorFactory.getConnector(msg.json.type).isSEPresent();
     }
     return null;
   },
