@@ -102,28 +102,11 @@ SEReader.prototype = {
 
   _sessions: [],
 
-  _isClosed: false,
-
   type: SE.TYPE_UICC,
 
   classID: Components.ID("{1c7bdba3-cd35-4f8b-a546-55b3232457d5}"),
   contractID: "@mozilla.org/secureelement/SEReader;1",
   QueryInterface: XPCOMUtils.generateQI([]),
-
-
-  // Chrome only
-  setClosed: function setClosed(isClosed) {
-    // If already closed, simply return
-    if (this._isClosed) {
-      return;
-    }
-    // Update this instances state
-    this._isClosed = isClosed;
-    // Notify all children
-    for (let session of this._sessions) {
-      session.setClosed(true);
-    }
-  },
 
   initialize: function initialize(win, type) {
     this._window = win;
@@ -183,7 +166,10 @@ SEReader.prototype = {
         this._sessions.push(aMessage.childContext);
         break;
       case "SE:CloseAllByReaderResolved":
-        this.setClosed(true);
+        // Notify all children
+        for (let session of this._sessions) {
+          session.setClosed(true);
+        }
         break;
       default:
         if (DEBUG) debug("Ignoring Msg: " + aMessage.name +
@@ -237,7 +223,7 @@ SESession.prototype = {
     }
   },
 
-  initialize: function initialize(win, sessionToken, readerCtx, type) {
+  initialize: function initialize(win, sessionToken, readerCtx) {
     this._window = win;
     // Update the 'sessionToken' that identifies and represents this
     // instance of the object
@@ -460,7 +446,7 @@ SEChannel.prototype = {
       case "SE:TransmitAPDUResolved": // Do nothing
         break;
       case "SE:CloseChannelResolved":
-        this._isClosed = true;
+        this.setClosed(true);
         break;
       default:
         if (DEBUG) debug("Ignoring Msg: " + aMessage.name +
@@ -628,7 +614,7 @@ SEManager.prototype = {
         break;
       case "SE:OpenSessionResolved":
         chromeObj = new SESession();
-        chromeObj.initialize(this._window, result.sessionToken, context, data.type);
+        chromeObj.initialize(this._window, result.sessionToken, context.__DOM_IMPL__);
         // Add the new key:'childContext' with the value: SESession instance (chromeObj).
         // This child context will be passed to its parent instance of SEReader by
         // notifying its listener 'receiveMessage'.
@@ -644,7 +630,7 @@ SEManager.prototype = {
                              result.openResponse,
                              data.sessionToken,
                              data.aid,
-                             context);
+                             context.__DOM_IMPL__);
         // Add the new key:'childContext' with the value: SEChannel instance (chromeObj).
         // This child context will be passed to its parent instance of SESession by
         // notifying its listener 'receiveMessage'.
