@@ -291,10 +291,29 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
         allSessions = {};
     },
 
-    // Returns true if the given sessionToken is already registered / valid one,
-    // else returns false
+    // validates appId, sessionToken (if present), channelToken (if present)
     isValidSession: function(data) {
-      return (this.appInfoMap[data.appId].sessions[data.sessionToken] ? true : false);
+      let { appId: appId, sessionToken: sToken, channelToken: chToken } = data;
+
+      // appId needs to be present
+      if (!appId || !this.appInfoMap[appId]) {
+        return false;
+      }
+
+      // channelToken can be present only if sessionToken is available
+      if (chToken && !sToken) {
+        return false;
+      }
+
+      if (sToken && !this.appInfoMap[appId].sessions[sToken]) {
+        return false;
+      }
+
+      if (chToken && !this.appInfoMap[appId].sessions[sToken].channels[chToken]) {
+        return false;
+      }
+
+      return true;
     },
 
     // Gets channel count associated with the 'sessionToken'
@@ -309,17 +328,8 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
 
     // Gets all the channels associated with the 'sessionToken'
     getAllChannelsBySessionToken: function(sessionToken, appId) {
-      let appInfo = this.appInfoMap[appId];
-      if (!appInfo) {
-        debug("Unable to get channels for sesssionId: " + sessionToken + ", AppId : " + appId);
-        return [];
-      }
-      let sessions = appInfo.sessions[sessionToken];
-      if (!sessions) {
-        debug("Unable to get all channels : " + appId + " sessionToken: " + sessionToken);
-        return [];
-      }
-      return this._getChannels(sessions.channels);
+      let session = this.appInfoMap[appId].sessions[sessionToken];
+      return this._getChannels(session.channels);
     },
 
     /**
@@ -833,11 +843,14 @@ function SecureElementManager() {
   this.connectorFactory.getConnector(SE.TYPE_UICC).start();
 
   // Initialize handlers array
-  this.handlers['SE:OpenChannel'] = this.openChannel;
-  this.handlers['SE:CloseChannel'] = this.closeChannel;
-  this.handlers['SE:TransmitAPDU'] = this.transmit;
-  this.handlers['SE:CloseAllByReader'] = this.closeAllChannelsByReader;
-  this.handlers['SE:CloseAllBySession'] = this.closeAllChannelsBySessionToken;
+  this.handlers["SE:OpenChannel"] = this.openChannel;
+  this.handlers["SE:TransmitAPDU"] = this.transmit;
+  this.handlers["SE:CloseChannel"] =
+    (data, callback) => this.closeChannelsBy(SE.OBJ_CHANNEL, data, callback);
+  this.handlers["SE:CloseAllBySession"] =
+    (data, callback) => this.closeChannelsBy(SE.OBJ_SESSION, data, callback);
+  this.handlers["SE:CloseAllByReader"] =
+    (data, callback) => this.closeChannelsBy(SE.OBJ_READER, data, callback);
 
   Services.obs.addObserver(this, NS_XPCOM_SHUTDOWN_OBSERVER_ID, false);
 }
@@ -920,7 +933,7 @@ SecureElementManager.prototype = {
       return SE.ERROR_GENERIC;
     }
 
-    if (!gMap.isValidAID(msg.aid, msg)) {
+    if (msg.aid && !gMap.isValidAID(msg.aid, msg)) {
       debug("Invalid AID - " + msg.aid + ", [appId: " + msg.appId +
 	    ", sessionToken: " + msg.sessionToken + ", token: " + msg.channelToken + " ]");
       return SE.ERROR_GENERIC;
@@ -944,30 +957,56 @@ SecureElementManager.prototype = {
   _closeAll: function(type, channels, callback) {
     let connector = this.connectorFactory.getConnector(type);
     try {
-      connector.doCloseAll(channels, function(result) {
-        // Remove all the channel entries from the map, since these channels have
-        // been successfully closed
-        for (let i = 0; i < result.channels.length; i++) {
-	  gMap.removeChannel(result.channels[i], type);
-        }
+      connector.doCloseAll(channels, (result) => {
+        // Remove all the channel entries from the map, since these channels
+        // have been successfully closed
+        result.channels.forEach((ch) => gMap.removeChannel(ch, type));
         // Do not expose removed channels to content
         delete result.channels;
-        if (callback) callback(result);
+        if (callback) {
+          callback(result);
+        }
       });
     } catch (error) {
-      if (DEBUG) {
-	debug("Exception thrown while 'doClose' "+ error);
-	if (callback) callback({ error: error });
+      debug("Exception thrown while 'doClose' "+ error);
+      if (callback)  {
+        callback({ error: error });
       }
     }
   },
 
-  _closeAllChannelsByAppId: function(data, callback) {
-    return this._closeAll(data.type,
-      gMap.getAllChannelsByAppIdType(data.appId), callback);
-  },
+  closeChannelsBy: function(objType, msg, callback) {
+    // Perform Sanity Checks!
+    let error = this._checkErrorsForCloseChannel(msg);
+    if (error !== SE.ERROR_NONE) {
+      if (callback)  {
+        callback({ error: error });
+      }
+      return;
+    }
 
-  // Following functions are handlers for requests from content
+    let channels = [];
+    switch(objType) {
+      case SE.OBJ_CHANNEL:
+        channels.push(gMap.getChannel(msg));
+        break;
+      case SE.OBJ_SESSION:
+        channels = gMap.getAllChannelsBySessionToken(msg.sessionToken, msg.appId);
+        break;
+      case SE.OBJ_READER:
+        channels = gMap.getAllChannelsByAppIdType(msg.appId, msg.type);
+        break;
+    }
+
+    if(!channels || channels.length === 0) {
+      if (callback) {
+        callback({ error: SE.ERROR_NONE });
+      }
+      return;
+    }
+
+    this._closeAll(msg.type, channels, callback);
+  },
 
   openChannel: function(msg, callback) {
     // Perform Sanity Checks!
@@ -1025,31 +1064,6 @@ SecureElementManager.prototype = {
     }
   },
 
-  closeChannel: function(msg, callback) {
-    // Perform Sanity Checks!
-    let error = this._checkErrorsForCloseChannel(msg);
-    if (error !== SE.ERROR_NONE) {
-      if (callback) callback({ error: error });
-      return;
-    }
-
-    // TBD: Perform checks with ACE module here!
-
-    return this._closeAll(msg.type, [gMap.getChannel(msg)], callback);
-  },
-
-  // Closes all the channels opened by a session
-  closeAllChannelsBySessionToken: function(data, callback) {
-    return this._closeAll(data.type,
-      gMap.getAllChannelsBySessionToken(data.sessionToken, data.appId), callback);
-  },
-
-  // Closes all the channels opened by the reader
-  closeAllChannelsByReader: function(data, callback) {
-    return this._closeAll(data.type,
-      gMap.getAllChannelsByAppIdType(data.appId, data.type), callback);
-  },
-
   // 1. Query the map to get 'appInfo' based on 'msg.target'.
   //    (appInfo.appId & appInfo.readerTypes)
   // 2. Iterate over all registered readerTypes and close all channels by type.
@@ -1059,8 +1073,8 @@ SecureElementManager.prototype = {
     if (!appInfo) return;
     for (let i = 0; i < appInfo.readerTypes.length; i++) {
       // No need to pass the callback
-      this._closeAllChannelsByAppId({appId: appInfo.appId,
-				    type: appInfo.readerTypes[i]}, null);
+      this.closeChannelsBy(SE.OBJ_READER,
+        { appId: appInfo.appId, type: appInfo.readerTypes[i] }, null);
     }
     gMap.unregisterSecureElementTarget(target);
   },

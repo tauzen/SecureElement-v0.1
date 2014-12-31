@@ -31,6 +31,10 @@ this.MAX_CHANNELS_ALLOWED_PER_SESSION = 4;
 this.TYPE_BASIC_CHANNEL = "basic";
 this.TYPE_LOGICAL_CHANNEL = "logical";
 
+this.OBJ_CHANNEL = "channel";
+this.OBJ_SESSION = "session";
+this.OBJ_READER = "reader";
+
 this.BASIC_CHANNEL = 0;
 
 // According GPCardSpec 2.2
