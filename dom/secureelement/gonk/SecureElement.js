@@ -481,8 +481,6 @@ XPCOMUtils.defineLazyGetter(this, "UiccConnector", function() {
 
     _isUiccPresent: false,
 
-    notifyOnSEPresent: null,
-
    /**
      * nsIIccListener interface methods.
      */
@@ -494,11 +492,6 @@ XPCOMUtils.defineLazyGetter(this, "UiccConnector", function() {
       this._isUiccPresent = this._getCardState();
       if (DEBUG) debug("CardStateChanged! " + "Uicc Present : " +
                        this._isUiccPresent);
-      // Notify the callback
-      if (this.notifyOnSEPresent) {
-        this.notifyOnSEPresent(SE.TYPE_UICC,
-                               this._isUiccPresent);
-      }
     },
 
     notifyIccInfoChanged: function() {},
@@ -521,14 +514,14 @@ XPCOMUtils.defineLazyGetter(this, "UiccConnector", function() {
       return this._isUiccPresent;
     },
 
-    _checkSEPresence: function _checkSEPresence() {
+    _checkPresence: function _checkPresence() {
       if (!this._isUiccPresent) {
         throw new Error(SE.ERROR_BADSTATE + "UICC Secure Element is not present!");
       }
     },
 
     doOpenChannel: function(aid, callback) {
-      this._checkSEPresence();
+      this._checkPresence();
 
       let aidLen = aid ? aid.length : 0;
       if (aidLen === 0) {
@@ -542,8 +535,6 @@ XPCOMUtils.defineLazyGetter(this, "UiccConnector", function() {
         debug("Invalid AID length : " + aidLen);
         throw new Error(SE.ERROR_GENERIC);
       }
-
-      // TBD: Finally Perform checks with ACE module
 
       let aidStr = SEUtils.byteArrayToHexString(aid);
       let self = this;
@@ -568,13 +559,13 @@ XPCOMUtils.defineLazyGetter(this, "UiccConnector", function() {
     },
 
     doTransmit: function(command, callback) {
-      this._checkSEPresence();
+      this._checkPresence();
 
       let cla = command.cla;
       let ins = command.ins;
       let p1 = command.p1;
       let p2 = command.p2;
-
+      let data = null;
       let appendLe = (command.data !== null) && (command.le !== -1);
       // Note that P3 of the C-TPDU is set to ‘00’ in Case 1 (only headers) scenarios
       let p3 = 0x00;
@@ -613,9 +604,6 @@ XPCOMUtils.defineLazyGetter(this, "UiccConnector", function() {
         if (DEBUG) debug("Attempting to transmit GlobalPlatform command");
       }
 
-      // TBD: Finally Perform checks with ACE module
-
-      let data = null;
       // Check p3 > 0 AND the command.data length > 0. The second condition is
       // needed to explicitly check if there are 'data bytes' indeed. If there
       // are no 'data bytes' then 'p3' will be interpreted as 'Le'.
@@ -657,7 +645,7 @@ XPCOMUtils.defineLazyGetter(this, "UiccConnector", function() {
     },
 
     doCloseAll: function(channels, callback) {
-      this._checkSEPresence();
+      this._checkPresence();
 
       let closedChannels = [];
       if (!channels || channels.length === 0) {
@@ -666,8 +654,6 @@ XPCOMUtils.defineLazyGetter(this, "UiccConnector", function() {
                      reason: "No Active Channels to be closed!"});
         return;
       }
-
-      // TBD: Finally Perform checks with ACE module
 
       let count = 0;
       for (let index = 0; index < channels.length; index++) {
@@ -991,6 +977,8 @@ SecureElementManager.prototype = {
       return;
     }
 
+    // TBD: Perform checks with ACE module here!
+
     // Sanity passed! Create Connector obj based on the 'type'
     let connector = this.connectorFactory.getConnector(msg.type);
     try {
@@ -1019,6 +1007,8 @@ SecureElementManager.prototype = {
       return;
     }
 
+    // TBD: Perform checks with ACE module here!
+
     let connector = this.connectorFactory.getConnector(msg.type);
     // Set the channel to CLA before calling connector's doTransmit.
     // See GP Spec, 11.1.4 Class Byte Coding
@@ -1042,6 +1032,8 @@ SecureElementManager.prototype = {
       if (callback) callback({ error: error });
       return;
     }
+
+    // TBD: Perform checks with ACE module here!
 
     return this._closeAll(msg.type, [gMap.getChannel(msg)], callback);
   },
