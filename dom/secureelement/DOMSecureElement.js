@@ -168,7 +168,7 @@ SEReader.prototype = {
       case "SE:CloseAllByReaderResolved":
         // Notify all children
         for (let session of this._sessions) {
-          session.setClosed(true);
+          session.isClosed = true;
         }
         break;
       default:
@@ -206,20 +206,6 @@ SESession.prototype = {
   _checkClosed: function _checkClosed() {
     if (this._isClosed) {
       throw new Error(SE.ERROR_BADSTATE + " Session Already Closed!");
-    }
-  },
-
-  // Chrome only
-  setClosed: function setClosed(isClosed) {
-    // If already closed, simply return.
-    if (this._isClosed) {
-      return;
-    }
-    // Update this instances state
-    this._isClosed = isClosed;
-    // Notify all children
-    for (let channel of this._channels) {
-      channel.setClosed(true);
     }
   },
 
@@ -296,13 +282,26 @@ SESession.prototype = {
     return this._isClosed;
   },
 
+  set isClosed(isClosed) {
+    // If the new value is same as current one, (or)
+    // if the session is already closed then simply return!
+    if (this._isClosed === isClosed || this._isClosed) {
+      return;
+    }
+    // Update the state for all children
+    for (let channel of this._channels) {
+      channel.isClosed = true;
+    }
+    this._isClosed = isClosed;
+  },
+
   receiveMessage: function receiveMessage(aMessage) {
     switch (aMessage.name) {
       case "SE:OpenChannelResolved":
         this._channels.push(aMessage.childContext);
         break;
       case "SE:CloseAllBySessionResolved":
-        this.setClosed(true);
+        this.isClosed = true;
         break;
       default:
         if (DEBUG) debug("Ignoring Msg: " + aMessage.name +
@@ -343,11 +342,6 @@ SEChannel.prototype = {
     if (this._isClosed) {
       throw new Error(SE.ERROR_BADSTATE +" Channel Already Closed!");
     }
-  },
-
-  // Chrome only
-  setClosed: function setClosed(isClosed) {
-    this._isClosed = isClosed;
   },
 
   initialize: function initialize(win, channelToken, isBasicChannel,
@@ -441,12 +435,16 @@ SEChannel.prototype = {
     return this._isClosed;
   },
 
+  set isClosed(isClosed) {
+    this._isClosed = isClosed;
+  },
+
   receiveMessage: function receiveMessage(aMessage) {
     switch (aMessage.name) {
       case "SE:TransmitAPDUResolved": // Do nothing
         break;
       case "SE:CloseChannelResolved":
-        this.setClosed(true);
+        this.isClosed = true;
         break;
       default:
         if (DEBUG) debug("Ignoring Msg: " + aMessage.name +
