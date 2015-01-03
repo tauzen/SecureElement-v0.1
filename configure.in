@@ -7487,15 +7487,6 @@ fi
 AC_SUBST(MOZ_NFC)
 
 dnl ========================================================
-dnl = Enable Support for Secure Element API
-dnl ========================================================
-dnl if test -n "$MOZ_SECUREELEMENT"; then
-   AC_DEFINE(MOZ_SECUREELEMENT)
-   MOZ_SECUREELEMENT=1,
-dnl fi
- AC_SUBST(MOZ_SECUREELEMENT)
-
-dnl ========================================================
 dnl = Enable Pico Speech Synthesis (Gonk usually)
 dnl ========================================================
 MOZ_ARG_ENABLE_BOOL(synth-pico,
@@ -7550,6 +7541,15 @@ if test -n "$MOZ_AUDIO_CHANNEL_MANAGER"; then
     AC_DEFINE(MOZ_AUDIO_CHANNEL_MANAGER)
 fi
 AC_SUBST(MOZ_AUDIO_CHANNEL_MANAGER)
+
+dnl ========================================================
+dnl = Enable Support for Secure Element API
+dnl ========================================================
+   MOZ_SECUREELEMENT=1,
+if test -n "$MOZ_SECUREELEMENT"; then
+   AC_DEFINE(MOZ_SECUREELEMENT)
+fi
+ AC_SUBST(MOZ_SECUREELEMENT)
 
 dnl ========================================================
 dnl = Support for demangling undefined symbols

@@ -11,10 +11,15 @@ if CONFIG['MOZ_SECUREELEMENT']:
         'DOMSecureElement.manifest',
     ]
 
+XPIDL_MODULE = 'dom_secureelement'
+
 if CONFIG['MOZ_WIDGET_TOOLKIT'] == 'gonk' and CONFIG['MOZ_SECUREELEMENT']:
     EXTRA_COMPONENTS += [
         'gonk/SecureElement.js',
         'gonk/SecureElement.manifest',
+    ]
+    XPIDL_SOURCES += [
+        'gonk/nsISecureElementConnector.idl',
     ]
     EXTRA_JS_MODULES += [
         'gonk/se_consts.js',

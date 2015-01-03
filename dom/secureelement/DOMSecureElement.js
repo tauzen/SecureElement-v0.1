@@ -293,6 +293,8 @@ SESession.prototype = {
       channel.isClosed = true;
     }
     this._isClosed = isClosed;
+    // Reset the sessionToken
+    this._sessionToken = null;
   },
 
   receiveMessage: function receiveMessage(aMessage) {
@@ -437,6 +439,8 @@ SEChannel.prototype = {
 
   set isClosed(isClosed) {
     this._isClosed = isClosed;
+    // Reset the channelToken
+    this._channelToken = null;
   },
 
   receiveMessage: function receiveMessage(aMessage) {
@@ -639,7 +643,7 @@ SEManager.prototype = {
       case "SE:TransmitAPDUResolved":
         chromeObj = new SEResponse();
         chromeObj.initialize(result.sw1, result.sw2, result.response,
-                             context);
+                             context.__DOM_IMPL__);
         contentObj = this._window.SEResponse._create(this._window, chromeObj);
         resolver.resolve(contentObj);
         break;

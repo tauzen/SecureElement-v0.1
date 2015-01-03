@@ -12,8 +12,12 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# SecureElement
+# SecureElementManager
 component {48f4e650-28d2-11e4-8c21-0800200c9a66} SecureElement.js
-contract @mozilla.org/secureelement;1 {48f4e650-28d2-11e4-8c21-0800200c9a66}
-category profile-after-change SecureElementManager @mozilla.org/secureelement;1
+contract @mozilla.org/secureelement/manager;1 {48f4e650-28d2-11e4-8c21-0800200c9a66}
+category profile-after-change SecureElementManager @mozilla.org/secureelement/manager;1
+
+# SecureElementConnector
+component {31839213-23f5-41f7-8380-090b3e28b503} SecureElement.js
+contract @mozilla.org/secureelement/connector;1 {31839213-23f5-41f7-8380-090b3e28b503}
 
