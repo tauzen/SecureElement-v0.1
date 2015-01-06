@@ -62,9 +62,6 @@ interface SESession {
   // Status of current session
   readonly attribute boolean isClosed;
 
-  // Answer to Reset provided by the secure element
-  readonly attribute Uint8Array atr;
-
   /**
    * Opens a communication logical channel to an application on Secure Element identified by the AID.
    * The 'aid' can be null for some secure elements.

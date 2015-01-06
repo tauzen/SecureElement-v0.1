@@ -18,5 +18,4 @@ interface SEManager {
    */
   [Throws]
   Promise<sequence<SEReader>> getSEReaders();
-  
 };
