@@ -17,13 +17,10 @@
 
 "use strict";
 
-const {classes: Cc, interfaces: Ci, utils: Cu, results: Cr} = Components;
+/* globals dump, Components, XPCOMUtils, SE, Services, UiccConnector,
+   SEUtils, ppmm, gMap, libcutils */
 
-function debug(s) {
-  if (DEBUG) {
-    dump("-*- SecureElement: " + s + "\n");
-  }
-}
+const {classes: Cc, interfaces: Ci, utils: Cu } = Components;
 
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 Cu.import("resource://gre/modules/Services.jsm");
@@ -40,13 +37,18 @@ XPCOMUtils.defineLazyModuleGetter(this, "SEUtils",
 
 // set to true in se_consts.js to see debug messages
 let DEBUG = SE.DEBUG_SE;
+function debug(s) {
+  if (DEBUG) {
+    dump("-*- SecureElement: " + s + "\n");
+  }
+}
 
 // TODO: Bug 1118099  - Add multi-sim support.
 // In the Multi-sim, there is more than one client.
 // For now, use default clientID as 0. Ideally, SE parent process would like to
 // know which clients (uicc slot) are connected to CLF over SWP interface.
-const PREFERRED_UICC_CLIENTID = libcutils.property_get(
-                                  "ro.moz.se.def_client_id", "0");
+const PREFERRED_UICC_CLIENTID =
+  libcutils.property_get("ro.moz.se.def_client_id", "0");
 
 const SE_IPC_SECUREELEMENT_MSG_NAMES = [
   "SE:GetSEReaders",
@@ -59,20 +61,22 @@ const SE_IPC_SECUREELEMENT_MSG_NAMES = [
   "SE:IsSEPresent"
 ];
 
-const SECUREELEMENTMANAGER_CONTRACTID = "@mozilla.org/secureelement/parent-manager;1";
+const SECUREELEMENTMANAGER_CONTRACTID =
+  "@mozilla.org/secureelement/parent-manager;1";
 const SECUREELEMENTMANAGER_CID =
   Components.ID("{48f4e650-28d2-11e4-8c21-0800200c9a66}");
 const NS_XPCOM_SHUTDOWN_OBSERVER_ID = "xpcom-shutdown";
 
-const SECUREELEMENTCONNECTOR_CONTRACTID = "@mozilla.org/secureelement/connector;1";
+const SECUREELEMENTCONNECTOR_CONTRACTID =
+  "@mozilla.org/secureelement/connector;1";
 const SECUREELEMENTCONNECTOR_CID =
   Components.ID("{31839213-23f5-41f7-8380-090b3e28b503}");
 
 XPCOMUtils.defineLazyServiceGetter(this, "ppmm",
-                   "@mozilla.org/parentprocessmessagemanager;1",
-                   "nsIMessageBroadcaster");
+                                   "@mozilla.org/parentprocessmessagemanager;1",
+                                   "nsIMessageBroadcaster");
 
-// Factory constructor
+// @todo i think we should remove this
 function SEConnectorFactory() {}
 
 /**
@@ -86,34 +90,30 @@ SEConnectorFactory.prototype = {
         return UiccConnector;
       case SE.TYPE_ESE:
       default:
-        if (DEBUG) debug("UnSupported SEConnector : " + type);
+        debug("UnSupported SEConnector : " + type);
         return null;
     }
   }
 };
 
 /**
- * 'gMap' is a nested dictionary object that mananges all the necessary information
- * pertainining to multiple sessions and channels for a given application (appId).
+ * 'gMap' is a nested dictionary object that manages all the information
+ * pertaining to sessions and channels for a given application (appId).
  * An application (appId / content) can open multiple sessions.
  * In turn each session can open multiple channels with the secure element.
- * Following are its (key,value) attributes and brief description :
- * (key)'appId'       : Key used mainly to retrieve the 'session obj' (sessions).
- * 'target'           : Target obj that identifies the content target to notify to
- * 'readerTypes'      : Types ('uicc' / 'eSE') that are available to the
-                        application (appId)
- * 'sessions'         : Dictionary obj that holds all the sessions opened
-                        by the application (appId)
- * (key)'sessionToken': Key used to retrieve the 'session info ' such as
-                        'type' & 'channels'
- * 'type'             : Session type indicating 'uicc' (or) 'eSE'
- * 'channels'         : Dictionary obj that holds all the channels opened by the session.
- * (key)'token'       : Key used to retrieve 'channel info' such as 'aid' ,
-                        'channel Number' and the 'type' of channel
- * 'type'             : Channel type indicating if it is 'logical' / 'basic'
- * 'aid'              : AID that identifies the opened channel.
- * 'channel'          : The channel number that was returned by lower layers upon
-                        successfully opening a channel
+ * Following are its (key,value) attributes and brief description:
+ * (key)'appId' - Key used mainly to retrieve the 'session obj' (sessions)
+ * 'target' - Target obj that identifies the content target to notify to
+ * 'readerTypes' - Types ('uicc' / 'eSE') that are available to the application
+ * 'sessions' - Dictionary obj that holds all the sessions opened by the app
+ * (key)'sessionToken' - Key used to retrieve the 'session info' 
+ * 'type' - Session type indicating 'uicc' (or) 'eSE'
+ * 'channels' - Dictionary obj that holds all the channels opened by the session
+ * (key)'token' - Key used to retrieve 'channel info'
+ * 'type' - Channel type indicating if it is 'logical' / 'basic'
+ * 'aid' - AID that identifies the opened channel.
+ * 'channel' - The channel number that was returned by lower layers upon 
+ * successfully opening a channel
  */
 XPCOMUtils.defineLazyGetter(this, "gMap", function() {
   return {
@@ -167,10 +167,6 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
 
     uuidGenerator: null,
 
-    /**
-     * Application (appId) related functions
-     */
-
     // Register the new SecureElement target.
     registerSecureElementTarget: function(message, readers) {
       let appInfoMap = this.appInfoMap;
@@ -186,7 +182,7 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
                          readerTypes: readers,
                          sessions: {} };
       appInfoMap[appId] = newAppInfo;
-      if (DEBUG) debug("Registering a new SE target " + appId);
+      debug("Registering a new SE target " + appId);
     },
 
     // UnRegister the SecureElement target.
@@ -199,7 +195,7 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
         let targetInfo = targets[appId];
         if (targetInfo && targetInfo.target === target) {
           // Remove the target from the list of registered targets
-          if (DEBUG) debug("Unregisterd SE Target for AppId : " + appId);
+          debug("Unregistered SE Target for AppId : " + appId);
           delete targets[appId];
         }
       }
@@ -245,21 +241,17 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
     // Checks if the 'readerType' is a registered / supported one or not for
     // the given 'appId'
     isSupportedReaderType: function(data) {
-      // TODO: Bug 1118101 - Get supported readerTypes based on the permissions
-      //                      available for the given.
+      // TODO: Bug 1118101 Get supported readerTypes based on the permissions
+      // available for the given.
       let types = this.appInfoMap[data.appId].readerTypes;
       return (types.indexOf(data.type) > -1);
     },
-
-    /**
-     * Session related functions
-     */
 
     // Add a new sessionToken for a given appId
     addSession: function(msg) {
       let appId = msg.appId;
       let type = msg.type;
-      // Generate a unique sessionToken and send it to content. All the subsequent
+      // Generate a unique sessionToken and send it to content. All subsequent
       // operations may happen on this session.
       let sessionToken = this._getUUIDGenerator().generateUUID().toString();
 
@@ -268,30 +260,31 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
         debug("Unable to add session: " + appId);
         return null;
       }
-      appInfo.sessions[sessionToken] = { type: type,
-                                      channels: {} };
+      appInfo.sessions[sessionToken] = { type: type, channels: {} };
       return sessionToken;
     },
 
     // Remove the sessionToken from given appId
     removeSession: function(msg) {
       let sessions = this.appInfoMap[msg.appId].sessions;
-      if (sessions[msg.sessionToken].type === msg.type)
+      if (sessions[msg.sessionToken].type === msg.type) {
         delete sessions[msg.sessionToken];
+      }
     },
 
     // Removes / Resets all sessions for a given appId.
     removeAllSessions: function(msg) {
       let allSessions = this.appInfoMap[msg.appId].sessions;
       // reset all sessions
-      if (allSessions)
+      if (allSessions) {
         allSessions = {};
+      }
     },
 
     // Returns true if the given sessionToken is already registered / valid one,
     // else returns false
     isValidSession: function(data) {
-      let { appId: appId, sessionToken: sToken, channelToken: chToken } = data;
+      let { appId: appId, sessionToken: sToken } = data;
 
       // appId needs to be present
       if (!appId || !this.appInfoMap[appId]) {
@@ -309,7 +302,8 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
     getChannelCountBySessionToken: function(sessionToken, appId) {
       let session = this.appInfoMap[appId].sessions[sessionToken];
       if (!session) {
-        debug("Unable to get channel count : " + appId + " sessionToken: " + sessionToken);
+        debug("Unable to get channel count: " + appId +
+              " sessionToken: " + sessionToken);
         return 0;
       }
       return Object.keys(session.channels).length;
@@ -321,15 +315,12 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
       return this._getChannels(session.channels);
     },
 
-    /**
-     * channel related functions
-     */
-
-    // Add new channel to a given sessionToken. Upon successfully adding the entry
+    // Add channel to a given sessionToken. Upon successfully adding the entry
     // this function will return the 'token'
+    // @todo use isValidSession instead of manual validation 
     addChannel: function(channel, msg) {
       let appId = msg.appId;
-      // Generate a unique 'token' (alias) instead of sending the actual 'channel number'.
+      // Generate a unique 'token' (alias) instead of sending 'channel number'.
       // to the content. Any further 'Channel' related operations by the content
       // shall operate using this token.
       let token = this._getUUIDGenerator().generateUUID().toString();
@@ -341,26 +332,26 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
       }
       let session = appInfo.sessions[msg.sessionToken];
       if (!session) {
-        debug("Unable to add channel: Inavlid session, " + msg.sessionToken +
+        debug("Unable to add channel: Invalid session, " + msg.sessionToken +
               " appId:" + appId);
         return null;
       }
 
       // Add if 'type' matches
       if (session.type !== msg.type) {
-        if (DEBUG) debug("Unable to add channel: Type Mismatch - " + session.type +
-                         " Vs " + msg.type + " (or) Channel already added:" +
-                          channel + " " + session.channels[token].channel);
+        debug("Unable to add channel: Type Mismatch - " + session.type +
+              " Vs " + msg.type + " (or) Channel already added:" +
+              channel + " " + session.channels[token].channel);
         return null;
       }
       // Add the entry
-      session.channels[token] = { aid: msg.aid,
-                                  channel:  channel };
+      session.channels[token] = { aid: msg.aid, channel:  channel };
       return token;
     },
 
     // Remove the given ''channel' entry based on type.
     // Note that ''channel' will be unique per type
+    // @todo refactoring needed
     removeChannel: function(channel, type) {
       let targets = this.appInfoMap;
       Object.keys(targets).forEach((appId) => {
@@ -371,8 +362,8 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
             Object.keys(channels).forEach((token) => {
               if (channels[token].channel ===  channel) {
                 // We have found the match
-                if (DEBUG) debug("Deleting channel with token : " + token +
-                                 ",  channel : " +  channel);
+                debug("Deleting channel with token : " + token +
+                      ",  channel : " +  channel);
                 delete channels[token];
               }
             }); // End of Channels keys
@@ -383,6 +374,7 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
 
     // Validates the given 'channelToken' by checking if it is a registered one
     // for the given (appId, sessionToken, channelToken)
+    // @todo reuse isValidSession here
     isValidChannelToken: function(data) {
       let { appId: appId, sessionToken: sToken, channelToken: chToken } = data;
 
@@ -391,109 +383,57 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
         return false;
       }
 
-     if (sToken && !this.appInfoMap[appId].sessions[sToken]) {
+      if (sToken && !this.appInfoMap[appId].sessions[sToken]) {
         return false;
       }
 
-      if (chToken && !this.appInfoMap[appId].sessions[sToken].channels[chToken]) {
+      if (chToken &&
+          !this.appInfoMap[appId].sessions[sToken].channels[chToken]) {
         return false;
       }
 
       return true;
     },
 
-    // Get the 'channel' associated for a given (appId, sessionToken, channelToken)
+    // Get the 'channel' associated with (appId, sessionToken, channelToken)
     getChannel: function(data) {
       if (!this.isValidChannelToken(data)) {
-        if (DEBUG) debug("InValid Channel Token. Unable to get the channel");
+        debug("InValid Channel Token. Unable to get the channel");
         return null;
       }
 
-      return this.appInfoMap[data.appId].sessions[data.sessionToken].
-        channels[data.channelToken].channel;
+      return this.appInfoMap[data.appId].sessions[data.sessionToken]
+                 .channels[data.channelToken].channel;
     },
 
-    /*
-     * Private internal functions
-     */
-
-    // Retrieves all the channels for the given 'channels' object.
-    // For example, consider that there are 3 channels opened in a given session.
-    // Say, appInfoMap's 'channels' obj is as follows:
-    // channels : {
-    //   [token: // (key = 'aaaaa')
-    //     type:
-    //     aid :
-    //     channel : 2]
-    //   [token: // (key = 'bbbbb')
-    //     type:
-    //     aid :
-    //     channel : 3]
-    //   [token: // (key = 'ccccc')
-    //     type:
-    //     aid :
-    //     channel : 4]
-    // }] // End of 'channels'
-    // This function returns an array of channels [2,3,4]. If no 'channel entry'
-    // exists in 'channels it returns an emppty array '[]'
+    // Returns an array of channels like [2,3,4] from session.channels object. 
+    // If no 'channel entry' exists in 'channels it returns an empty array '[]'
+    // @todo consider removing
     _getChannels: function(channels) {
       channels = channels || {};
       return Object.keys(channels).map(cKey => channels[cKey].channel);
     },
 
+    // @todo remove, use XPCOMUtils.defineLazyServiceGetter instead
     _getUUIDGenerator: function() {
-      // This check ensures that by calling this internal helper does not create a new
-      // instance of 'nsIUUIDGenerator' everytime.
       if (!this.uuidGenerator) {
-        this.uuidGenerator =
-          Cc["@mozilla.org/uuid-generator;1"].createInstance(Ci.nsIUUIDGenerator);
+        this.uuidGenerator = Cc["@mozilla.org/uuid-generator;1"]
+                             .createInstance(Ci.nsIUUIDGenerator);
       }
       return this.uuidGenerator;
     },
-
-    /*
-    // Uncomment this function in order to debug the 'gMap'.
-    log: function(event) {
-      debug("----------------------------------------------------------------------");
-      debug(event + ":");
-      let targets = this.appInfoMap;
-      Object.keys(targets).forEach((appId) => {
-        debug("appId : " + appId);
-        debug("       target : " + targets[appId].target);
-        let readerTypes = '';
-        for (let index = 0; targets[appId].readerTypes &&
-               (index < targets[appId].readerTypes.length); index++) {
-          readerTypes += targets[appId].readerTypes[index] + ' ';
-        }
-        debug("       readerTypes : " + readerTypes);
-        let sessions = targets[appId].sessions;
-        Object.keys(sessions).forEach((sessionToken) => {
-          debug("       sessionToken key : " + sessionToken);
-          debug("                      type : " + sessions[sessionToken].type);
-          let channels = sessions[sessionToken].channels;
-          Object.keys(channels).forEach((token) => {
-            debug("                          token key : " + token);
-            debug("                                    Type : " + channels[token].type);
-            debug("                                     channel : " + channels[token].channel);
-            debug("                                    AID : " +
-                                                        SE.gUtils.byteTohexString(channels[token].aid));
-          }); // End of Channels keys
-        }); // End of Sessions keys
-      }); // End of AppId keys
-      debug("----------------------------------------------------------------------");
-    },*/
   };
 });
 
 /**
- * 'IccListenerCtx' instance  implements 'nsIIccListener' to monitor the state of
- * 'uicc' card for given clientId. It exposes two public functions to init()
- * and shutdown() to monitor the uicc card state changes.
+ * 'IccListenerCtx' instance implements 'nsIIccListener' to monitor the state of
+ * 'uicc' card for given clientId. 
  */
 function IccListenerCtx(clientId, iccProvider) {
   this._clientId = clientId;
   this._iccProvider = iccProvider;
 }
+
 IccListenerCtx.prototype = {
   _clientId: 0xFF,
 
@@ -534,7 +474,8 @@ IccListenerCtx.prototype = {
   },
 
   _updatePresenceState: function() {
-    // Consider following Card states as not quite ready for performing IccChannel* related commands
+    // Consider following Card states as not quite ready for performing
+    // IccChannel* related commands
     let notReadyStates = [
       "unknown",
       "illegal",
@@ -542,7 +483,8 @@ IccListenerCtx.prototype = {
       "permanentBlocked",
     ];
     let cardState = this._iccProvider.getCardState(this._clientId);
-    this._isPresent = (((cardState !== null) && (notReadyStates.indexOf(cardState) == -1)) ? true : false);
+    this._isPresent = cardState !== null &&
+                      notReadyStates.indexOf(cardState) == -1;
   }
 };
 
@@ -558,6 +500,7 @@ IccListenerCtx.prototype = {
  * doTransmit(clientId, command, callback)
  * doCloseChannel(clientId, channel, callback)
  * doCloseAll(clientId, [channels], callback)
+ * @todo move to separate file with IccListnerCtx
  */
 XPCOMUtils.defineLazyGetter(this, "UiccConnector", function() {
   return {
@@ -569,8 +512,9 @@ XPCOMUtils.defineLazyGetter(this, "UiccConnector", function() {
 
     // Initializes iccListener context per clientId to monitor UICC state
     start: function() {
-      this._numClients = Cc["@mozilla.org/ril;1"].
-                         getService(Ci.nsIRadioInterfaceLayer).numRadioInterfaces;
+      this._numClients = 
+        Cc["@mozilla.org/ril;1"]
+        .getService(Ci.nsIRadioInterfaceLayer).numRadioInterfaces;
       for (let clientId = 0; clientId < this._numClients; clientId++) {
         let iccListenerCtx = new IccListenerCtx(clientId, this._getProvider());
         this._iccListenerCtx.push(iccListenerCtx);
@@ -596,7 +540,7 @@ XPCOMUtils.defineLazyGetter(this, "UiccConnector", function() {
     },
 
     /**
-     * Opens a supplemetary channel on a given clientId
+     * Opens a supplementary channel on a given clientId
      *
      * @param clientId
      *        ClientId representing a UICC / SIM slot
@@ -607,6 +551,7 @@ XPCOMUtils.defineLazyGetter(this, "UiccConnector", function() {
      *        The result will be notified either through
      *        'notifyOpenChannelSuccess(channel, openResponse)' (or)
      *        'notifyError(error)'.
+     * @todo remove self, use arrow functions
      */
     doOpenChannel: function(clientId, aid, callback) {
       this._checkPresence(clientId);
@@ -618,7 +563,8 @@ XPCOMUtils.defineLazyGetter(this, "UiccConnector", function() {
         debug("AID is not set. Reject the openChannel request!");
         throw new Error(SE.ERROR_SECURITY);
       }
-      // Note that 'aid' is a string, and therefore max length = SE.MAX_AID_LEN * 2
+      // Note that 'aid' is a string, and therefore 
+      // max length = SE.MAX_AID_LEN * 2
       if (aidLen < SE.MIN_AID_LEN || aidLen > SE.MAX_AID_LEN * 2) {
         debug("Invalid AID length : " + aidLen);
         throw new Error(SE.ERROR_GENERIC);
@@ -643,8 +589,8 @@ XPCOMUtils.defineLazyGetter(this, "UiccConnector", function() {
         },
 
         notifyError: function(reason) {
-          debug('Failed to open the channel to AID : ' + aid +
-                ', Rejected with Reason : ' + reason);
+          debug("Failed to open the channel to AID : " + aid +
+                ", Rejected with Reason : " + reason);
           if (callback) {
             callback.notifyError(reason);
           }
@@ -674,7 +620,8 @@ XPCOMUtils.defineLazyGetter(this, "UiccConnector", function() {
       let p2 = command.p2;
       let data = null;
       let appendLe = (command.data !== null) && (command.le !== -1);
-      // Note that P3 of the C-TPDU is set to ‘00’ in Case 1 (only headers) scenarios
+      // Note that P3 of the C-TPDU is set to ‘00’ in Case 1
+      // (only headers) scenarios
       let p3 = 0x00;
       // Determine p3
       if (command.data !== null && command.le !== -1) {
@@ -706,15 +653,16 @@ XPCOMUtils.defineLazyGetter(this, "UiccConnector", function() {
           debug("SELECT command not permitted");
           throw new Error(SE.ERROR_SECURITY);
         }
-        if (DEBUG) debug("Attempting to transmit an ISO command");
+        debug("Attempting to transmit an ISO command");
       } else {
-        if (DEBUG) debug("Attempting to transmit GlobalPlatform command");
+        debug("Attempting to transmit GlobalPlatform command");
       }
 
       // Check p3 > 0 AND the command.data length > 0. The second condition is
       // needed to explicitly check if there are 'data bytes' indeed. If there
       // are no 'data bytes' then 'p3' will be interpreted as 'Le'.
-      if ((p3 > 0) && (command.data.length > 0) && (command.data.length < SE.MAX_APDU_LEN)) {
+      if ((p3 > 0) && (command.data.length > 0) &&
+          (command.data.length < SE.MAX_APDU_LEN)) {
         let commandData = new Uint8Array(p3);
         let offset = 0;
         while (offset < SE.MAX_APDU_LEN && offset < p3) {
@@ -731,12 +679,12 @@ XPCOMUtils.defineLazyGetter(this, "UiccConnector", function() {
         data += leHexStr;
       }
       let channel = this._getChannelNumber(cla);
-      if (DEBUG) debug("transmit on Channel # " + channel);
+      debug("transmit on Channel # " + channel);
 
       // Pass empty response '' as args as we are not interested in appended
       // responses yet!
       this._doIccExchangeAPDU(clientId, channel, cla, ins,
-                              p1, p2, p3, data, '', callback);
+                              p1, p2, p3, data, "", callback);
     },
 
     /**
@@ -756,15 +704,15 @@ XPCOMUtils.defineLazyGetter(this, "UiccConnector", function() {
 
       this._getProvider().iccCloseChannel(clientId, channel, {
         notifyCloseChannelSuccess: function() {
-          if (DEBUG) debug("doCloseChannel successfully closed the channel # : " + channel);
+          ("doCloseChannel successfully closed the channel # : " + channel);
           if (callback) {
             callback.notifyCloseChannelSuccess();
           }
         },
 
         notifyError: function(reason) {
-          debug('Failed to close the channel #  : ' + channel +
-                ', Rejected with Reason : ' + reason);
+          debug("Failed to close the channel #  : " + channel +
+                ", Rejected with Reason : " + reason);
           if (callback) {
             callback.notifyError(reason);
           }
@@ -773,6 +721,9 @@ XPCOMUtils.defineLazyGetter(this, "UiccConnector", function() {
     },
 
     // Closes all the channels on given clientId.
+    // @todo replace for with forEach
+    // @todo notifyChannelSuccess, notifyError should be defined
+    // outside the loop
     doCloseAll: function(clientId, channels, callback) {
       this._checkPresence(clientId);
 
@@ -789,19 +740,22 @@ XPCOMUtils.defineLazyGetter(this, "UiccConnector", function() {
       for (let index = 0; index < channels.length; index++) {
         let channel = channels[index];
         if (channel === SE.BASIC_CHANNEL) {
-          if (DEBUG) debug("Basic Channel can never be closed!");
+          debug("Basic Channel can never be closed!");
           if (callback && (++count === channels.length)) {
             callback({ error: SE.ERROR_GENERIC,
                        reason: "Basic Channel can never be closed!"});
           }
         }
 
-        if (!channel) continue;
-        if (DEBUG) debug("Attempting to Close Channel # : " + channel);
+        if (!channel) {
+          continue;
+        }
+
+        debug("Attempting to Close Channel # : " + channel);
 
         this._getProvider().iccCloseChannel(clientId, channel, {
           notifyCloseChannelSuccess: function() {
-            if (DEBUG) debug("notifyCloseChannelSuccess # : " + channel);
+            debug("notifyCloseChannelSuccess # : " + channel);
             closedChannels.push(channel);
             if (callback && (++count === channels.length)) {
               callback({ error: SE.ERROR_NONE, channels: closedChannels });
@@ -809,8 +763,8 @@ XPCOMUtils.defineLazyGetter(this, "UiccConnector", function() {
           },
 
           notifyError: function(reason) {
-            debug('Failed to close the channel #  : ' + channel +
-                  ', Rejected with Reason : ' + reason);
+            debug("Failed to close the channel #  : " + channel +
+                  ", Rejected with Reason : " + reason);
             if (callback && (++count === channels.length)) {
               callback({ error: SE.ERROR_BADSTATE, channels: closedChannels,
                          reason: reason });
@@ -820,7 +774,7 @@ XPCOMUtils.defineLazyGetter(this, "UiccConnector", function() {
       }
     },
 
-    setChannelToClassByte(cla,  channel) {
+    setChannelToClassByte(cla, channel) {
       if (channel < 4) {
         // b7 = 0 indicates the first interindustry class byte coding
         cla = (((cla & 0x9C) & 0xFF) |  channel);
@@ -834,30 +788,32 @@ XPCOMUtils.defineLazyGetter(this, "UiccConnector", function() {
       return cla;
     },
 
-    // Following are the private functions
-
     _doGetOpenResponse: function(clientId, channel, length, callback) {
       let openResponseCommand = {
         cla: channel & 0xFF,
         ins: SE.INS_GET_RESPONSE,
         p1: 0x00,
         p2: 0x00,
-        p3: length, //Indicate to UICC card to get all the available response bytes.
+        p3: length, // request all available response bytes
         data: null
       };
 
       this.doTransmit(clientId, openResponseCommand, {
         notifyExchangeAPDUResponse: function(sw1, sw2, response) {
-          if (DEBUG) debug('GET Response : ' + response);
-	  if (callback) {
-            callback({ error: SE.ERROR_NONE, sw1: sw1, sw2: sw2,
-              response: response });
+          debug("GET Response : " + response);
+          if (callback) {
+            callback({ 
+              error: SE.ERROR_NONE,
+              sw1: sw1,
+              sw2: sw2,
+              response: response 
+            });
           }
         },
 
         notifyError: function(reason) {
-          debug('Failed to open the channel to AID : ' + aidStr +
-                ', Rejected with Reason : ' + reason);
+          debug("Failed to get open response: " + 
+                ", Rejected with Reason : " + reason);
           if (callback) {
             callback({ error: SE.ERROR_INVALIDAPPLICATION, reason: reason });
           }
@@ -865,57 +821,57 @@ XPCOMUtils.defineLazyGetter(this, "UiccConnector", function() {
       });
     },
 
+    // @todo remove self, use arrow functions
     _doIccExchangeAPDU: function(clientId, channel, cla, ins, p1, p2,
                                  p3, data, appendResponse, callback) {
-      let response = '';
       let self = this;
 
-      this._getProvider().iccExchangeAPDU(clientId, channel,
-                                  (cla & 0xFC), ins, p1, p2, p3, data, {
+      this._getProvider().iccExchangeAPDU(clientId, channel, (cla & 0xFC), ins,
+                                          p1, p2, p3, data, {
         notifyExchangeAPDUResponse: function(sw1, sw2, response) {
 
-          if (DEBUG) debug("sw1 : " + sw1 + ", sw2 : " + sw2 +
-                           ", response : " + response);
+          debug("sw1 : " + sw1 + ", sw2 : " + sw2 + ", response : " + response);
 
           // Copy the response
           response = (response && response.length > 0) ?
                       response + appendResponse : appendResponse;
 
           // According to ETSI TS 102 221 , See section 7.2.2.3.1:
-          // Enforce 'Procedure bytes' checks before notifying the callback. Note that
-          // 'Procedure bytes'are special cases.
+          // Enforce 'Procedure bytes' checks before notifying the callback. 
+          // Note that 'Procedure bytes'are special cases.
 
           // There is no need to handle '0x60' procedure byte as it implies
-          // no-action from SE stack perspective. In any case this procedure byte is not
+          // no-action from SE stack perspective. This procedure byte is not
           // notified to application layer (?).
           if (sw1 === 0x6C) {
-            // Use the previous command header with length as second procedure byte (SW2)
-            // as received and repeat the procedure. i,e; '_doIccExchangeAPDU(...)'.
-            if (DEBUG) debug("Enforce '0x6C' Procedure with sw2 : " + sw2);
+            // Use the previous command header with length as second procedure
+            // byte (SW2) as received and repeat the procedure. i,e; 
+            // '_doIccExchangeAPDU(...)'
+            debug("Enforce '0x6C' Procedure with sw2 : " + sw2);
 
-            // Recursive! and Pass empty response '' as args, since '0x6C' procedure
-            // does not have to deal with appended responses.
-            self._doIccExchangeAPDU(PREFERRED_UICC_CLIENTID, channel,
-                                    cla, ins, p1, p2, sw2, data, '', callback);
+            // Recursive! and Pass empty response '' as args, since '0x6C'
+            // procedure does not have to deal with appended responses.
+            self._doIccExchangeAPDU(clientId, channel,
+                                    cla, ins, p1, p2, sw2, data, "", callback);
           } else if (sw1 === 0x61) {
-            if (DEBUG) debug("Enforce '0x61' Procedure with sw2 : " + sw2);
-            // Since the terminal waited for a second procedure byte and received
-            // it (sw2), send a GET RESPONSE command header to the UICC with a maximum
-            // length of 'XX', where 'XX' is the value of the second procedure byte (SW2).
+            debug("Enforce '0x61' Procedure with sw2 : " + sw2);
+            // Since the terminal waited for a second procedure byte and
+            // received it (sw2), send a GET RESPONSE command header to the UICC
+            // with a maximum length of 'XX', where 'XX' is the value of the 
+            // second procedure byte (SW2).
 
-            // Recursive, with GET RESPONSE bytes and '0x61' procedure IS interested in
-            // appended responses.
-            self._doIccExchangeAPDU(PREFERRED_UICC_CLIENTID, channel,
-                                    (channel & 0xFF), SE.INS_GET_RESPONSE, 0x00, 0x00, sw2, null,
-                                    response, callback);
+            // Recursive, with GET RESPONSE bytes and '0x61' procedure IS 
+            // interested in appended responses.
+            self._doIccExchangeAPDU(clientId, channel, (channel & 0xFF),
+              SE.INS_GET_RESPONSE, 0x00, 0x00, sw2, null, response, callback);
           } else if (callback) {
             callback.notifyExchangeAPDUResponse(sw1, sw2, response);
           }
         },
 
         notifyError: function(reason) {
-          debug('Failed to trasmit C-APDU over the channel #  : ' + channel +
-                ', Rejected with Reason : ' + reason);
+          debug("Failed to trasmit C-APDU over the channel #  : " + channel +
+                ", Rejected with Reason : " + reason);
           if (callback) {
             callback.notifyError(reason);
           }
@@ -926,15 +882,15 @@ XPCOMUtils.defineLazyGetter(this, "UiccConnector", function() {
     _getChannelNumber: function(cla) {
       // As per GlobalPlatform Card Specification v2.2, check the 7th bit
       let classByteCoding = (cla & 0x40);
-      if (classByteCoding == 0x00) {
-        // If 7 th bit is not set, then channel number is encoded in the 2 rightmost bits
-        // Refer to section 11.1.4.1. Possible logical channel numbers are:-
-        // (00: 0, 01 : 1, 10 : 2, 11 : 3)
+      if (classByteCoding === 0x00) {
+        // If 7 th bit is not set, then channel number is encoded in the 2 
+        // rightmost bits Refer to section 11.1.4.1. Possible logical channel 
+        // are: (00: 0, 01 : 1, 10 : 2, 11 : 3)
         return cla & 0x03;
       } else {
-        // If the 7th bit is set, channel number is encoded in the 4 rightmost bits
-        // Refer to section  11.1.4.2.
-        // Note that Supplementary Logical Channels start from 4 to 19. So add 4!
+        // If the 7th bit is set, channel number is encoded in the 4 rightmost
+        // bits, refer to section 11.1.4.2. Note that Supplementary Logical
+        // Channels start from 4 to 19. So add 4!
         return (cla & 0x0F) + 4;
       }
     },
@@ -945,16 +901,18 @@ XPCOMUtils.defineLazyGetter(this, "UiccConnector", function() {
       }
 
       if (!this.isSEPresent(clientId)) {
-        throw new Error(SE.ERROR_BADSTATE + ",UICC Secure Element is not present!");
+        throw new Error(SE.ERROR_BADSTATE + 
+                        ",UICC Secure Element is not present!");
       }
     },
 
+    // @todo remove, use XPCOMUtils.defineLazyServiceGetter instead
     _getProvider: function() {
-      // This check ensures that by calling this internal helper does not create a new
-      // instance of 'nsIIccProvider' for everytime.
+      // This check ensures that by calling this internal helper does not 
+      // create a new instance of 'nsIIccProvider' for everytime.
       if (!this._iccProvider) {
-        this._iccProvider =
-          Cc["@mozilla.org/ril/content-helper;1"].createInstance(Ci.nsIIccProvider);
+        this._iccProvider = Cc["@mozilla.org/ril/content-helper;1"]
+                            .createInstance(Ci.nsIIccProvider);
       }
       return this._iccProvider;
     }
@@ -966,9 +924,9 @@ XPCOMUtils.defineLazyGetter(this, "UiccConnector", function() {
  * child process / content. It is also the 'message manager' of the module.
  * It interacts with other objects such as 'gMap' & 'Connector instances
  * (UiccConnector, eSEConnector)' to perform various operations.
- * It mainly interacts with 'gMap' to query the state of Readers, Sessions, Channels,
- * while it interacts with 'Connector instances' to perform low level SE-related
- * (open,close,transmit) I/O operations.
+ * It mainly interacts with 'gMap' to query the state of Readers, Sessions, 
+ * Channels, while it interacts with 'Connector instances' to perform low 
+ * level SE-related (open,close,transmit) I/O operations.
  */
 function SecureElementManager() {
   this._registerMessageListeners();
@@ -1027,12 +985,12 @@ SecureElementManager.prototype = {
     let error = SE.ERROR_NONE;
     if (!gMap.isValidSession(msg)) {
       debug("OpenChannel: Invalid Session! " + msg.sessionToken +
-	    " for appId : " + msg.appId);
+            " for appId : " + msg.appId);
       return SE.ERROR_GENERIC;
     }
 
-    if (gMap.getChannelCountBySessionToken(msg.sessionToken, msg.appId) >=
-	  SE.MAX_CHANNELS_ALLOWED_PER_SESSION) {
+    if (gMap.getChannelCountBySessionToken(msg.sessionToken, msg.appId) >= 
+        SE.MAX_CHANNELS_ALLOWED_PER_SESSION) {
       debug("Max channels per session exceed !!!");
       return SE.ERROR_GENERIC;
     }
@@ -1043,14 +1001,14 @@ SecureElementManager.prototype = {
   _checkErrorsForTransmit(msg) {
     let error = SE.ERROR_NONE;
     if (!gMap.isValidSession(msg)) {
-      debug("Transmit: Invalid Session! " + msg.sessionToken +
-	    " for appId : " + msg.appId);
+      debug("Transmit: Invalid Session! " + msg.sessionToken + 
+            " for appId : " + msg.appId);
       return SE.ERROR_GENERIC;
     }
 
     if (!gMap.isValidChannelToken(msg)) {
-      debug("Invalid Token - " + msg.channelToken + ", [appId: " + msg.appId +
-	      ", sessionToken: " + msg.sessionToken + " ]");
+      debug("Invalid Token - " + msg.channelToken + ", [appId: " + msg.appId + 
+            ", sessionToken: " + msg.sessionToken + " ]");
       return SE.ERROR_GENERIC;
     }
     return error;
@@ -1059,14 +1017,14 @@ SecureElementManager.prototype = {
   _checkErrorsForCloseChannel(msg) {
     let error = SE.ERROR_NONE;
     if (!gMap.isValidSession(msg)) {
-      debug("CloseChannel: Invalid Session " + msg.sessionToken +
-	    " for appId : " + msg.appId);
+      debug("CloseChannel: Invalid Session " + msg.sessionToken + 
+            " for appId : " + msg.appId);
       return SE.ERROR_GENERIC;
     }
 
     if (!gMap.isValidChannelToken(msg)) {
-      debug("Invalid Token - " + msg.channelToken + ", [appId: " + msg.appId +
-	      ", sessionToken: " + msg.sessionToken + " ]");
+      debug("Invalid Token - " + msg.channelToken + ", [appId: " + msg.appId + 
+            ", sessionToken: " + msg.sessionToken + " ]");
       return SE.ERROR_GENERIC;
     }
     return error;
@@ -1076,22 +1034,23 @@ SecureElementManager.prototype = {
   _getAvailableReaders: function() {
     let readerTypes = [];
     // TODO 1: Bug 1118096 - Add IDL so that other sub-systems such as RIL ,
-    //                       NFC can implement it.
+    // NFC can implement it.
     // TODO 2: Bug 1118097 - According to OpenMobile spec, the reader names
-    //                       should support slot based naming convention.
-    //                       i;e; Instead of returning 'uicc', return 'uicc<slot#>'.
+    // should support slot based naming convention.
+    // i;e; Instead of returning 'uicc', return 'uicc<slot#>'.
     readerTypes.push(SE.TYPE_UICC);
     return readerTypes;
   },
 
+  // @todo switch for to forEach
   _closeAll: function(type, channels, callback) {
     let connector = this.connectorFactory.getConnector(type);
     try {
       connector.doCloseAll(PREFERRED_UICC_CLIENTID, channels, function(result) {
-        // Remove all the channel entries from the map, since these channels have
-        // been successfully closed
+        // Remove all the channel entries from the map, since these channels
+        // have been successfully closed
         for (let i = 0; i < result.channels.length; i++) {
-	  gMap.removeChannel(result.channels[i], type);
+          gMap.removeChannel(result.channels[i], type);
         }
         // Do not expose removed channels to content
         delete result.channels;
@@ -1100,11 +1059,9 @@ SecureElementManager.prototype = {
         }
       });
     } catch (error) {
-      if (DEBUG) {
-	debug("Exception thrown while 'doClose' "+ error);
-	if (callback) {
-          callback({ error: error });
-        }
+      debug("Exception thrown while 'doClose' "+ error);
+      if (callback) {
+        callback({ error: error });
       }
     }
   },
@@ -1134,19 +1091,22 @@ SecureElementManager.prototype = {
       connector.doOpenChannel(PREFERRED_UICC_CLIENTID,
         SEUtils.byteArrayToHexString(msg.aid), {
         notifyOpenChannelSuccess: function(channel, openResponse) {
-	  // Add the new 'channel' to the map upon success
-	  let channelToken = gMap.addChannel(channel, msg);
+          // Add the new 'channel' to the map upon success
+          let channelToken = gMap.addChannel(channel, msg);
           if (callback) {
-            callback({ error: SE.ERROR_NONE, channelToken: channelToken,
-                       isBasicChannel: (channel === SE.BASIC_CHANNEL),
-                       openResponse: SEUtils.hexStringToByteArray(openResponse) });
+            callback({ 
+              error: SE.ERROR_NONE,
+              channelToken: channelToken,
+              isBasicChannel: (channel === SE.BASIC_CHANNEL),
+              openResponse: SEUtils.hexStringToByteArray(openResponse) 
+            });
           }
         },
 
         notifyError: function(reason) {
-          debug('Failed to open the channel to AID : ' +
+          debug("Failed to open the channel to AID : " +
                  SEUtils.byteArrayToHexString(msg.aid) +
-                 ', Rejected with Reason : ' + reason);
+                 ", Rejected with Reason : " + reason);
           if (callback) {
             callback({ error: SE.ERROR_IO, reason: reason, response: [] });
           }
@@ -1154,11 +1114,9 @@ SecureElementManager.prototype = {
       });
 
     } catch (error) {
-      if (DEBUG) {
-	debug("Exception thrown while 'doOpenChannel' "+ error);
-	if (callback) {
-          callback({ error: error });
-        }
+      debug("Exception thrown while 'doOpenChannel' "+ error);
+      if (callback) {
+        callback({ error: error });
       }
     }
   },
@@ -1184,26 +1142,23 @@ SecureElementManager.prototype = {
     try {
       connector.doTransmit(PREFERRED_UICC_CLIENTID, msg.apdu, {
         notifyExchangeAPDUResponse: function(sw1, sw2, response) {
-	  if (callback) {
+          if (callback) {
             callback({ error: SE.ERROR_NONE, sw1: sw1, sw2: sw2,
               response: SEUtils.hexStringToByteArray(response) });
           }
         },
 
         notifyError: function(reason) {
-          debug('Failed to open the channel to AID : ' + aidStr +
-                ', Rejected with Reason : ' + reason);
+          debug("Transmit failed, rejected with Reason : " + reason);
           if (callback) {
             callback({ error: SE.ERROR_INVALIDAPPLICATION, reason: reason });
           }
         }
       });
     } catch (error) {
-      if (DEBUG) {
-	debug("Exception thrown while 'doTransmit' "+ error);
-	if (callback) {
-          callback({ error: error });
-        }
+      debug("Exception thrown while 'doTransmit' "+ error);
+      if (callback) {
+        callback({ error: error });
       }
     }
   },
@@ -1232,8 +1187,8 @@ SecureElementManager.prototype = {
       },
 
       notifyError: function(reason) {
-        debug('Failed to close the channel #  : ' + channel +
-              ', Rejected with Reason : ' + reason);
+        debug("Failed to close the channel #  : " + channel +
+              ", Rejected with Reason : " + reason);
         if (callback) {
           callback({ error: SE.ERROR_BADSTATE, reason: reason });
         }
@@ -1244,7 +1199,8 @@ SecureElementManager.prototype = {
   // Closes all the channels opened by a session
   closeAllChannelsBySessionToken: function(data, callback) {
     return this._closeAll(data.type,
-      gMap.getAllChannelsBySessionToken(data.sessionToken, data.appId), callback);
+      gMap.getAllChannelsBySessionToken(data.sessionToken, data.appId),
+      callback);
   },
 
   // Closes all the channels opened by the reader
@@ -1257,13 +1213,16 @@ SecureElementManager.prototype = {
   //    (appInfo.appId & appInfo.readerTypes)
   // 2. Iterate over all registered readerTypes and close all channels by type.
   // 3. Finally unregister the target from 'gMap' by deleting its entry.
+  // @todo for -> forEach
   handleChildProcessShutdown: function(target) {
     let appInfo = gMap.getAppInfoByMsgTarget(target);
-    if (!appInfo) return;
+    if (!appInfo) {
+      return;
+    }
     for (let i = 0; i < appInfo.readerTypes.length; i++) {
       // No need to pass the callback
       this._closeAllChannelsByAppId({appId: appInfo.appId,
-				    type: appInfo.readerTypes[i]}, null);
+        type: appInfo.readerTypes[i]}, null);
     }
     gMap.unregisterSecureElementTarget(target);
   },
@@ -1277,7 +1236,7 @@ SecureElementManager.prototype = {
     if (seReaderTypes.length > 0) {
       gMap.registerSecureElementTarget(msg, seReaderTypes);
       // Add the result
-      options['result'] = {readerTypes: seReaderTypes};
+      options.result = {readerTypes: seReaderTypes};
       promiseStatus = "Resolved";
     }
     msg.target.sendAsyncMessage(msg.name + promiseStatus, options);
@@ -1291,13 +1250,14 @@ SecureElementManager.prototype = {
     // Perform two checks before allowing opening of session
     // 1. Check if the type is already a supported one
     //          AND
-    // 2. Check if the 'session type' that content is attempting to connect to is
-    //    in a 'present state' by queriying the appropriate 'connector obj'.
+    // 2. Check if the 'session type' that content is attempting to connect to
+    // is in a 'present state' by queriying the appropriate 'connector obj'.
     if (gMap.isSupportedReaderType(msg.data) &&
-      this.connectorFactory.getConnector(msg.data.type).isSEPresent(PREFERRED_UICC_CLIENTID)) {
+        this.connectorFactory.getConnector(msg.data.type)
+                             .isSEPresent(PREFERRED_UICC_CLIENTID)) {
       promiseStatus = "Resolved";
       // Add the result
-      options['result'] = {sessionToken: gMap.addSession(msg.data)};
+      options.result = { sessionToken: gMap.addSession(msg.data) };
     }
     msg.target.sendAsyncMessage(msg.name + promiseStatus, options);
   },
@@ -1305,11 +1265,9 @@ SecureElementManager.prototype = {
   handleRequest: function(msg) {
     let handler = this.handlers[msg.name].bind(this);
     handler(msg.data, function(result) {
-      let promiseStatus = (result.error === SE.ERROR_NONE) ? "Resolved" : "Rejected";
-      let options = {
-	result: result,
-	metadata: msg.data
-      };
+      let promiseStatus = (result.error === SE.ERROR_NONE) ? "Resolved"
+                                                           : "Rejected";
+      let options = { result: result, metadata: msg.data };
       msg.target.sendAsyncMessage(msg.name + promiseStatus, options);
     });
   },
@@ -1319,8 +1277,8 @@ SecureElementManager.prototype = {
    */
 
   receiveMessage: function(msg) {
-    if (DEBUG) debug("Received '" + msg.name + "' message from content process" + ": " +
-		     JSON.stringify(msg.data));
+    DEBUG && debug("Received '" + msg.name + "' message from content process" +
+                   ": " + JSON.stringify(msg.data));
     if (msg.name == "child-process-shutdown") {
       // By the time we receive child-process-shutdown, the child process has
       // already forgotten its permissions so we need to unregister the target
@@ -1331,9 +1289,9 @@ SecureElementManager.prototype = {
 
     if (SE_IPC_SECUREELEMENT_MSG_NAMES.indexOf(msg.name) != -1) {
       if (!msg.target.assertPermission("secureelement-manage")) {
-	debug("SecureElement message " + msg.name +
-	      " from a content process with no 'secureelement-manage' privileges.");
-	throw new Error("Don't know about this message: " + msg.name);
+        debug("SecureElement message " + msg.name + " from a content process " +
+              "with no 'secureelement-manage' privileges.");
+        throw new Error("Don't know about this message: " + msg.name);
       }
     } else {
       debug("Ignoring unknown message type: " + msg.name);
@@ -1342,18 +1300,18 @@ SecureElementManager.prototype = {
 
     switch (msg.name) {
       case "SE:GetSEReaders":
-	this.handleGetSEReadersRequest(msg);
-	break;
+        this.handleGetSEReadersRequest(msg);
+        break;
       case "SE:OpenSession":
-	this.handleOpenSessionRequest(msg);
-	break;
+        this.handleOpenSessionRequest(msg);
+        break;
       case "SE:OpenChannel":
       case "SE:CloseChannel":
       case "SE:TransmitAPDU":
       case "SE:CloseAllBySession":
       case "SE:CloseAllByReader":
-	this.handleRequest(msg);
-	break;
+        this.handleRequest(msg);
+        break;
       case "SE:IsSEPresent":
         return this.connectorFactory.getConnector(msg.data.type).
           isSEPresent(PREFERRED_UICC_CLIENTID);
@@ -1366,18 +1324,16 @@ SecureElementManager.prototype = {
    */
 
   observe: function(subject, topic, data) {
-    switch (topic) {
-      case NS_XPCOM_SHUTDOWN_OBSERVER_ID:
-	this._shutdown();
-	break;
+    if (topic === NS_XPCOM_SHUTDOWN_OBSERVER_ID) {
+      this._shutdown();
     }
   }
 };
 
 /**
  * SecureElementConnector instance  implements 'nsISecureElementConnector'.
- * This is primarly used by external modules such as 'Access Control Enforcer (ACE)'
- * to perform primitive channel related operations such as
+ * This is primarly used by external modules such as Access Control Enforcer 
+ * (ACE) to perform primitive channel related operations such as
  * Opening a supplementary channel,
  * Exchanging Command APDU, and
  * Closing the channel.
@@ -1418,7 +1374,8 @@ SecureElementConnector.prototype = {
     connector.doOpenChannel(clientId, aid, callback);
   },
 
-  exchangeAPDU: function(type, clientId, channel, cla, ins, p1, p2, data, le, callback) {
+  exchangeAPDU:
+  function(type, clientId, channel, cla, ins, p1, p2, data, le,callback) {
     this._ensureParentProcess();
 
     let connector = this._connectorFactory.getConnector(this._getType(type));
@@ -1462,5 +1419,8 @@ SecureElementConnector.prototype = {
     }
   }
 };
-this.NSGetFactory = XPCOMUtils.generateNSGetFactory([SecureElementManager, SecureElementConnector]);
+this.NSGetFactory = XPCOMUtils.generateNSGetFactory([
+  SecureElementManager,
+  SecureElementConnector
+]);
 
