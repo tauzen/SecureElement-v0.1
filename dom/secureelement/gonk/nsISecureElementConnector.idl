@@ -46,7 +46,7 @@ interface nsISEChannelCallback : nsISupports
   void notifyError(in DOMString error);
 };
 
-[scriptable, uuid(ad12043e-c547-437f-a0dc-9ba146fcb804)]
+[scriptable, uuid(ac915cb3-f621-4f64-b67e-359057bec1ee)]
 interface nsISecureElementConnector : nsISupports
 {
    const long SE_TYPE_UICC        = 0;

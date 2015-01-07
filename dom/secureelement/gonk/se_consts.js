@@ -13,7 +13,7 @@
  * limitations under the License.
  */
 
-/* Copyright © 2015, Deutsche Telekom, Inc. */
+/* Copyright © 2014, Deutsche Telekom, Inc. */
 
 // Set to true to debug SecureElement (SE) stack
 this.DEBUG_ALL = true;
@@ -27,9 +27,6 @@ this.DEBUG_SE = DEBUG_ALL || false ;
 // supplementary logical channels available are : [1, 2, or 3].
 // However,Other SE types may support upto max 4 (including '0').
 this.MAX_CHANNELS_ALLOWED_PER_SESSION = 4;
-
-this.TYPE_BASIC_CHANNEL = "basic";
-this.TYPE_LOGICAL_CHANNEL = "logical";
 
 this.BASIC_CHANNEL = 0;
 

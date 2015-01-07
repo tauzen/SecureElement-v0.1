@@ -13,7 +13,7 @@
  * limitations under the License.
  */
 
-/* Copyright © 2015, Deutsche Telekom, Inc. */
+/* Copyright © 2014, Deutsche Telekom, Inc. */
 
 "use strict";
 
@@ -57,12 +57,11 @@ const SE_IPC_SECUREELEMENT_MSG_NAMES = [
   "SE:CloseChannel",
   "SE:TransmitAPDU",
   "SE:CloseAllByReader",
-  "SE:CloseAllBySession",
-  "SE:IsSEPresent"
+  "SE:CloseAllBySession"
 ];
 
 const SECUREELEMENTMANAGER_CONTRACTID =
-  "@mozilla.org/secureelement/parent-manager;1";
+  "@mozilla.org/secureelement/semanager;1";
 const SECUREELEMENTMANAGER_CID =
   Components.ID("{48f4e650-28d2-11e4-8c21-0800200c9a66}");
 const NS_XPCOM_SHUTDOWN_OBSERVER_ID = "xpcom-shutdown";
@@ -426,78 +425,14 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
 });
 
 /**
- * 'IccListenerCtx' instance implements 'nsIIccListener' to monitor the state of
- * 'uicc' card for given clientId. 
- */
-function IccListenerCtx(clientId, iccProvider) {
-  this._clientId = clientId;
-  this._iccProvider = iccProvider;
-}
-
-IccListenerCtx.prototype = {
-  _clientId: 0xFF,
-
-  _iccProvider: null,
-
-  _isPresent: false,
-
-  QueryInterface: XPCOMUtils.generateQI([Ci.nsIIccListener]),
-
-  /**
-   * nsIIccListener interface methods.
-   */
-  notifyStkCommand: function() {},
-
-  notifyStkSessionEnd: function() {},
-
-  notifyIccInfoChanged: function() {},
-
-  notifyCardStateChanged: function() {
-    this._updatePresenceState();
-  },
-
-  init: function() {
-    this._iccProvider.registerIccMsg(this._clientId, this);
-
-     // Update the state in order to avoid race condition.
-     // By this time, 'notifyCardStateChanged (with proper card state)'
-     // may have occurred already before this instance initialization.
-     this._updatePresenceState();
-  },
-
-  shutdown: function() {
-    this._iccProvider.unregisterIccMsg(this._clientId, this);
-  },
-
-  isPresent: function() {
-    return this._isPresent;
-  },
-
-  _updatePresenceState: function() {
-    // Consider following Card states as not quite ready for performing
-    // IccChannel* related commands
-    let notReadyStates = [
-      "unknown",
-      "illegal",
-      "personalizationInProgress",
-      "permanentBlocked",
-    ];
-    let cardState = this._iccProvider.getCardState(this._clientId);
-    this._isPresent = cardState !== null &&
-                      notReadyStates.indexOf(cardState) == -1;
-  }
-};
-
-/**
  * 'UiccConnector' object is a wrapper over iccProvider's channel management
- * related interfaces. It holds 'IccListenerCtx' instances per clientId.
+ * related interfaces.
  *
  * This object exposes the following public methods:
  * start()
  * stop()
- * isSEPresent(clientId)
  * doOpenChannel(clientId, aid, callback)
- * doTransmit(clientId, command, callback)
+ * doExchangeAPDU(clientId, command, callback)
  * doCloseChannel(clientId, channel, callback)
  * doCloseAll(clientId, [channels], callback)
  * @todo move to separate file with IccListnerCtx
@@ -506,37 +441,34 @@ XPCOMUtils.defineLazyGetter(this, "UiccConnector", function() {
   return {
     _iccProvider: null,
 
-    _iccListenerCtx: [],
+    _isPresent: false,
 
-    _numClients: 0,
+    /**
+     * nsIIccListener interface methods.
+     */
+    notifyStkCommand: function() {},
+
+    notifyStkSessionEnd: function() {},
+
+    notifyIccInfoChanged: function() {},
+
+    notifyCardStateChanged: function() {
+      this._updatePresenceState();
+    },
 
     // Initializes iccListener context per clientId to monitor UICC state
     start: function() {
-      this._numClients = 
-        Cc["@mozilla.org/ril;1"]
-        .getService(Ci.nsIRadioInterfaceLayer).numRadioInterfaces;
-      for (let clientId = 0; clientId < this._numClients; clientId++) {
-        let iccListenerCtx = new IccListenerCtx(clientId, this._getProvider());
-        this._iccListenerCtx.push(iccListenerCtx);
-        iccListenerCtx.init();
-      }
+      this._getProvider().registerIccMsg(PREFERRED_UICC_CLIENTID, this);
+
+      // Update the state in order to avoid race condition.
+      // By this time, 'notifyCardStateChanged (with proper card state)'
+      // may have occurred already before this instance initialization.
+      this._updatePresenceState();
     },
 
     // Detaches the listener and stops monitoring UICC state changes.
     stop: function() {
-      for (let clientId = 0; clientId < this._numClients; clientId++) {
-        this._iccListenerCtx[clientId].shutdown();
-      }
-      this._iccListenerCtx = [];
-    },
-
-    // Checks to see if the SE is present or not for a given clientId.
-    isSEPresent: function(clientId) {
-      let iccListenerCtx = this._iccListenerCtx[clientId];
-      if (!iccListenerCtx) {
-        return false;
-      }
-      return iccListenerCtx.isPresent();
+      this._getProvider().unregisterIccMsg(PREFERRED_UICC_CLIENTID, this);
     },
 
     /**
@@ -611,7 +543,7 @@ XPCOMUtils.defineLazyGetter(this, "UiccConnector", function() {
      *        'notifyExchangeAPDUResponse(sw1, sw2, response)' (or)
      *        'notifyError(error)'.
      */
-    doTransmit: function(clientId, command, callback) {
+    doExchangeAPDU: function(clientId, command, callback) {
       this._checkPresence(clientId);
 
       let cla = command.cla;
@@ -622,18 +554,9 @@ XPCOMUtils.defineLazyGetter(this, "UiccConnector", function() {
       let appendLe = (command.data !== null) && (command.le !== -1);
       // Note that P3 of the C-TPDU is set to ‘00’ in Case 1
       // (only headers) scenarios
-      let p3 = 0x00;
-      // Determine p3
-      if (command.data !== null && command.le !== -1) {
-        // In case both data and le are set, (case 4) then 'p3 = data length'
-        p3 = command.data.length;
-      } else if (command.data !== null ) {
-        // Only data is set, 'p3=lc / data length'
-        p3 = command.data.length; // lc
-      } else if (command.le !== -1) {
-        // Only le is set. 'p3=le'. Response expected!
-        p3 = command.le;
-      }
+
+      let p3 = command.data ? command.data.length :
+              (command.le !== -1 ? command.le : 0x00);
 
       // At this point perform more sanity checks on the c-apdu
       if (p3 + SE.APDU_HEADER_LEN > SE.MAX_APDU_LEN) {
@@ -642,13 +565,12 @@ XPCOMUtils.defineLazyGetter(this, "UiccConnector", function() {
         throw new Error(SE.ERROR_GENERIC);
       }
 
-      if (((cla & (0xFF & 0x80) === 0)) &&
-          ((0xFF & (cla & (0xFF & 0x60))) !== (0xFF & 0x20))) {
-        if (ins === (0xFF & SE.INS_MANAGE_CHANNEL)) {
+      if ((cla & 0x80 === 0) && ((cla & 0x60) !== 0x20)) {
+        if (ins === SE.INS_MANAGE_CHANNEL) {
           debug("MANAGE CHANNEL command not permitted");
           throw new Error(SE.ERROR_SECURITY);
         }
-        if ((ins === (0xFF & SE.INS_SELECT)) && (p1 == (0xFF & 0x04))) {
+        if ((ins === SE.INS_SELECT) && (p1 == 0x04)) {
           // SELECT by DF Name (p1=04) is not allowed
           debug("SELECT command not permitted");
           throw new Error(SE.ERROR_SECURITY);
@@ -727,47 +649,32 @@ XPCOMUtils.defineLazyGetter(this, "UiccConnector", function() {
     doCloseAll: function(clientId, channels, callback) {
       this._checkPresence(clientId);
 
-      let closedChannels = [];
-      if (!channels || channels.length === 0) {
-        if (callback) {
-          callback({ error: SE.ERROR_GENERIC, channels: closedChannels,
-                     reason: "No Active Channels to be closed!"});
-        }
-        return;
+      if (channels.length === 0) {
+        return callback({ error: SE.ERROR_BADSTATE,
+                          reason: "No Active Channels to be closed!" });
       }
 
-      let count = 0;
+      let cbCnt = 0;
       for (let index = 0; index < channels.length; index++) {
         let channel = channels[index];
-        if (channel === SE.BASIC_CHANNEL) {
-          debug("Basic Channel can never be closed!");
-          if (callback && (++count === channels.length)) {
-            callback({ error: SE.ERROR_GENERIC,
-                       reason: "Basic Channel can never be closed!"});
-          }
-        }
-
         if (!channel) {
           continue;
         }
-
         debug("Attempting to Close Channel # : " + channel);
 
         this._getProvider().iccCloseChannel(clientId, channel, {
           notifyCloseChannelSuccess: function() {
             debug("notifyCloseChannelSuccess # : " + channel);
-            closedChannels.push(channel);
-            if (callback && (++count === channels.length)) {
-              callback({ error: SE.ERROR_NONE, channels: closedChannels });
+            if (callback && (++cbCnt === channels.length)) {
+              callback({ error: SE.ERROR_NONE });
             }
           },
 
           notifyError: function(reason) {
             debug("Failed to close the channel #  : " + channel +
                   ", Rejected with Reason : " + reason);
-            if (callback && (++count === channels.length)) {
-              callback({ error: SE.ERROR_BADSTATE, channels: closedChannels,
-                         reason: reason });
+            if (callback && (++cbCnt === channels.length)) {
+              callback({ error: SE.ERROR_BADSTATE, reason: reason });
             }
           }
         });
@@ -798,7 +705,7 @@ XPCOMUtils.defineLazyGetter(this, "UiccConnector", function() {
         data: null
       };
 
-      this.doTransmit(clientId, openResponseCommand, {
+      this.doExchangeAPDU(clientId, openResponseCommand, {
         notifyExchangeAPDUResponse: function(sw1, sw2, response) {
           debug("GET Response : " + response);
           if (callback) {
@@ -895,15 +802,25 @@ XPCOMUtils.defineLazyGetter(this, "UiccConnector", function() {
       }
     },
 
-    _checkPresence: function _checkPresence(clientId) {
-      if (clientId >= this._numClients) {
-        throw new Error(SE.ERROR_GENERIC + ",Invalid ClientId " + clientId);
-      }
-
-      if (!this.isSEPresent(clientId)) {
+    _checkPresence: function _checkPresence() {
+      if (!this._isPresent) {
         throw new Error(SE.ERROR_BADSTATE + 
                         ",UICC Secure Element is not present!");
       }
+    },
+
+    _updatePresenceState: function() {
+      // Consider following Card states as not quite ready for performing
+      // IccChannel* related commands
+      let notReadyStates = [
+        "unknown",
+        "illegal",
+        "personalizationInProgress",
+        "permanentBlocked",
+      ];
+      let cardState = this._iccProvider.getCardState(PREFERRED_UICC_CLIENTID);
+      this._isPresent = cardState !== null &&
+                        notReadyStates.indexOf(cardState) == -1;
     },
 
     // @todo remove, use XPCOMUtils.defineLazyServiceGetter instead
@@ -935,24 +852,29 @@ function SecureElementManager() {
   this.connectorFactory.getConnector(SE.TYPE_UICC).start();
 
   // Initialize handlers array
-  this.handlers["SE:OpenChannel"] = this.openChannel;
-  this.handlers["SE:CloseChannel"] = this.closeChannel;
-  this.handlers["SE:TransmitAPDU"] = this.transmit;
-  this.handlers["SE:CloseAllByReader"] = this.closeAllChannelsByReader;
-  this.handlers["SE:CloseAllBySession"] = this.closeAllChannelsBySessionToken;
+  this.handlers["SE:OpenChannel"] = this.handleOpenChannel;
+  this.handlers["SE:CloseChannel"] = this.handleCloseChannel;
+  this.handlers["SE:TransmitAPDU"] = this.handleTransmit;
+  this.handlers["SE:CloseAllByReader"] = this.handleCloseAllChannelsByReader;
+  this.handlers["SE:CloseAllBySession"] = this.handleCloseAllChannelsBySessionToken;
 
   Services.obs.addObserver(this, NS_XPCOM_SHUTDOWN_OBSERVER_ID, false);
 }
 
 SecureElementManager.prototype = {
   classID: SECUREELEMENTMANAGER_CID,
+
   classInfo: XPCOMUtils.generateCI({
     classID: SECUREELEMENTMANAGER_CID,
     contractID: SECUREELEMENTMANAGER_CONTRACTID,
     classDescription: "SecureElementManager",
-    interfaces: [Ci.nsIMessageListener,
+    interfaces: [Ci.nsISecureElementConnector,
+                 Ci.nsIMessageListener,
                  Ci.nsIObserver]
   }),
+
+  QueryInterface: XPCOMUtils.generateQI([
+    Ci.nsISecureElementConnector]),
 
   connectorFactory: null,
 
@@ -1049,17 +971,15 @@ SecureElementManager.prototype = {
       connector.doCloseAll(PREFERRED_UICC_CLIENTID, channels, function(result) {
         // Remove all the channel entries from the map, since these channels
         // have been successfully closed
-        for (let i = 0; i < result.channels.length; i++) {
-          gMap.removeChannel(result.channels[i], type);
+        for (let i = 0; i < channels.length; i++) {
+          gMap.removeChannel(channels[i], type);
         }
-        // Do not expose removed channels to content
-        delete result.channels;
         if (callback) {
           callback(result);
         }
       });
     } catch (error) {
-      debug("Exception thrown while 'doClose' "+ error);
+      debug("Exception thrown while 'doCloseAll' "+ error);
       if (callback) {
         callback({ error: error });
       }
@@ -1073,7 +993,7 @@ SecureElementManager.prototype = {
 
   // Following functions are handlers for requests from content
 
-  openChannel: function(msg, callback) {
+  handleOpenChannel: function(msg, callback) {
     // Perform Sanity Checks!
     let error = this._checkErrorsForOpenChannel(msg);
     if (error !== SE.ERROR_NONE) {
@@ -1121,7 +1041,7 @@ SecureElementManager.prototype = {
     }
   },
 
-  transmit: function(msg, callback) {
+  handleTransmit: function(msg, callback) {
     // Perform basic sanity checks!
     let error = this._checkErrorsForTransmit(msg);
     if (error !== SE.ERROR_NONE) {
@@ -1134,13 +1054,13 @@ SecureElementManager.prototype = {
     // TODO: Bug 1118098  - Integrate with ACE module
 
     let connector = this.connectorFactory.getConnector(msg.type);
-    // Set the channel to CLA before calling connector's doTransmit.
+    // Set the channel to CLA before calling connector's doExchangeAPDU.
     // See GP Spec, 11.1.4 Class Byte Coding
     let channel = gMap.getChannel(msg);
     // Use connector to set the class byte
     msg.apdu.cla = connector.setChannelToClassByte(msg.apdu.cla, channel);
     try {
-      connector.doTransmit(PREFERRED_UICC_CLIENTID, msg.apdu, {
+      connector.doExchangeAPDU(PREFERRED_UICC_CLIENTID, msg.apdu, {
         notifyExchangeAPDUResponse: function(sw1, sw2, response) {
           if (callback) {
             callback({ error: SE.ERROR_NONE, sw1: sw1, sw2: sw2,
@@ -1156,14 +1076,14 @@ SecureElementManager.prototype = {
         }
       });
     } catch (error) {
-      debug("Exception thrown while 'doTransmit' "+ error);
+      debug("Exception thrown while 'doExchangeAPDU' "+ error);
       if (callback) {
         callback({ error: error });
       }
     }
   },
 
-  closeChannel: function(msg, callback) {
+  handleCloseChannel: function(msg, callback) {
     // Perform Sanity Checks!
     let error = this._checkErrorsForCloseChannel(msg);
     if (error !== SE.ERROR_NONE) {
@@ -1197,14 +1117,14 @@ SecureElementManager.prototype = {
   },
 
   // Closes all the channels opened by a session
-  closeAllChannelsBySessionToken: function(data, callback) {
+  handleCloseAllChannelsBySessionToken: function(data, callback) {
     return this._closeAll(data.type,
       gMap.getAllChannelsBySessionToken(data.sessionToken, data.appId),
       callback);
   },
 
   // Closes all the channels opened by the reader
-  closeAllChannelsByReader: function(data, callback) {
+  handleCloseAllChannelsByReader: function(data, callback) {
     return this._closeAll(data.type,
       gMap.getAllChannelsByAppIdType(data.appId, data.type), callback);
   },
@@ -1252,9 +1172,7 @@ SecureElementManager.prototype = {
     //          AND
     // 2. Check if the 'session type' that content is attempting to connect to
     // is in a 'present state' by queriying the appropriate 'connector obj'.
-    if (gMap.isSupportedReaderType(msg.data) &&
-        this.connectorFactory.getConnector(msg.data.type)
-                             .isSEPresent(PREFERRED_UICC_CLIENTID)) {
+    if (gMap.isSupportedReaderType(msg.data)) {
       promiseStatus = "Resolved";
       // Add the result
       options.result = { sessionToken: gMap.addSession(msg.data) };
@@ -1270,6 +1188,38 @@ SecureElementManager.prototype = {
       let options = { result: result, metadata: msg.data };
       msg.target.sendAsyncMessage(msg.name + promiseStatus, options);
     });
+  },
+
+  /**
+   * nsISecureElementConnector interface methods for external modules such as ACE
+   */
+  openChannel: function(seType, clientId, aid, callback) {
+    let type = (Ci.nsISecureElementConnector.SE_TYPE_UICC === seType) ? "uicc" : null;
+    let connector = this.connectorFactory.getConnector(type);
+    connector.doOpenChannel(clientId, aid, callback);
+  },
+
+  exchangeAPDU:
+  function(seType, clientId, channel, cla, ins, p1, p2, data, le,callback) {
+    let type = (Ci.nsISecureElementConnector.SE_TYPE_UICC === seType) ? "uicc" : null;
+    let connector = this.connectorFactory.getConnector(type);
+    // Mask the class byte with channel as per GP Spec, 11.1.4 Class Byte Coding
+    let classByte = connector.setChannelToClassByte(cla, channel);
+    let commandAPDU = {
+      cla: classByte,
+      ins: ins,
+      p1: p1,
+      p2: p2,
+      data: (data ? SEUtils.hexStringToByteArray(data) : null),
+      le: le
+    };
+    connector.doExchangeAPDU(clientId, commandAPDU, callback);
+  },
+
+  closeChannel: function(seType, clientId, channel, callback) {
+    let type = (Ci.nsISecureElementConnector.SE_TYPE_UICC === seType) ? "uicc" : null;
+    let connector = this.connectorFactory.getConnector(type);
+    connector.doCloseChannel(clientId, channel, callback);
   },
 
   /**
@@ -1312,9 +1262,6 @@ SecureElementManager.prototype = {
       case "SE:CloseAllByReader":
         this.handleRequest(msg);
         break;
-      case "SE:IsSEPresent":
-        return this.connectorFactory.getConnector(msg.data.type).
-          isSEPresent(PREFERRED_UICC_CLIENTID);
     }
     return null;
   },
@@ -1330,97 +1277,5 @@ SecureElementManager.prototype = {
   }
 };
 
-/**
- * SecureElementConnector instance  implements 'nsISecureElementConnector'.
- * This is primarly used by external modules such as Access Control Enforcer 
- * (ACE) to perform primitive channel related operations such as
- * Opening a supplementary channel,
- * Exchanging Command APDU, and
- * Closing the channel.
- * Note: Instance of this object is only accessible to parent process modules
-         for security reasons.
- */
-function SecureElementConnector() {
-  let appInfo = Cc["@mozilla.org/xre/app-info;1"];
-  // Flag to determine this process is a parent or child process.
-  this._isParentProcess =
-    !appInfo || appInfo.getService(Ci.nsIXULRuntime)
-                  .processType == Ci.nsIXULRuntime.PROCESS_TYPE_DEFAULT;
-  if (DEBUG) {
-    debug("Is user of nsISecureElementConnector interface, " +
-      "a parent process module ? " + this._isParentProcess);
-  }
-  this._connectorFactory = new SEConnectorFactory();
-}
-SecureElementConnector.prototype = {
-  _connectorFactory: null,
-
-  _isParentProcess: false,
-
-  classID:   SECUREELEMENTCONNECTOR_CID,
-  classInfo: XPCOMUtils.generateCI({
-    classID: SECUREELEMENTCONNECTOR_CID,
-    contractID: SECUREELEMENTCONNECTOR_CONTRACTID,
-    classDescription: "SecureElement Connector",
-    interfaces: [Ci.nsISecureElementConnector]}),
-
-  QueryInterface: XPCOMUtils.generateQI([
-    Ci.nsISecureElementConnector]),
-
-  openChannel: function(type, clientId, aid, callback) {
-    this._ensureParentProcess();
-
-    let connector = this._connectorFactory.getConnector(this._getType(type));
-    connector.doOpenChannel(clientId, aid, callback);
-  },
-
-  exchangeAPDU:
-  function(type, clientId, channel, cla, ins, p1, p2, data, le,callback) {
-    this._ensureParentProcess();
-
-    let connector = this._connectorFactory.getConnector(this._getType(type));
-    // Mask the class byte with channel
-    let classByte = connector.setChannelToClassByte(cla, channel);
-    let cmdData = data ? SEUtils.hexStringToByteArray(data) : null;
-    let commandAPDU = {
-      cla: classByte,
-      ins: ins,
-      p1: p1,
-      p2: p2,
-      data: cmdData,
-      le: le
-    };
-    connector.doTransmit(clientId, commandAPDU, callback);
-  },
-
-  closeChannel: function(type, clientId, channel, callback) {
-    this._ensureParentProcess();
-
-    let connector = this._connectorFactory.getConnector(this._getType(type));
-    connector.doCloseChannel(clientId, channel, callback);
-  },
-
-  _getType: function(type) {
-    switch (type) {
-      case Ci.nsISecureElementConnector.SE_TYPE_UICC:
-        return SE.TYPE_UICC;
-      case Ci.nsISecureElementConnector.SE_TYPE_ESE:
-        return SE.TYPE_ESE;
-      default:
-        return null;
-    }
-  },
-
-  _ensureParentProcess: function() {
-    if (!this._isParentProcess) {
-      throw new Error(SE.ERROR_SECURITY +
-        ",Only Parent process module can access the interfaces' :" +
-        "'nsISecureElementConnector' APIs");
-    }
-  }
-};
-this.NSGetFactory = XPCOMUtils.generateNSGetFactory([
-  SecureElementManager,
-  SecureElementConnector
-]);
+this.NSGetFactory = XPCOMUtils.generateNSGetFactory([SecureElementManager]);
 

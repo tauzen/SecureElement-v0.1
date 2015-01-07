@@ -2,7 +2,7 @@
  * License, v. 2.0. If a copy of the MPL was not distributed with this file,
  * You can obtain one at http://mozilla.org/MPL/2.0/. */
 
-/* Copyright © 2015, Deutsche Telekom, Inc. */
+/* Copyright © 2014, Deutsche Telekom, Inc. */
 
 /* globals dump, Components, XPCOMUtils, DOMRequestIpcHelper, cpmm, SE,
    Services */
@@ -113,12 +113,20 @@ SEReader.prototype = {
     this.type = type;
   },
 
-  openSession: function openSession() {
-    if (!this.isSEPresent) {
-      return PromiseHelpers.rejectWithSEError(SE.ERROR_GENERIC +
-             " SecureElement : '" + this.type + "' is not present. Unable to open the Session!");
-    }
+  // Chrome-only function
+  onOpenSession: function onOpenSession(session) {
+    this._sessions.push(session);
+  },
 
+  // Chrome-only function
+  onClose: function onClose() {
+    // Notify all children
+    for (let session of this._sessions) {
+      session.onClose();
+    }
+  },
+
+  openSession: function openSession() {
     return PromiseHelpers.createSEPromiseWithCtx(this, (aResolverId) => {
       /**
        * @params for 'SE:OpenSession'
@@ -153,27 +161,9 @@ SEReader.prototype = {
   },
 
   get isSEPresent() {
-    return cpmm.sendSyncMessage("SE:IsSEPresent", {
-      type: this.type,
-      appId: this._window.document.nodePrincipal.appId
-    });
-  },
-
-  processMessage: function processMessage(message) {
-    switch (message.name) {
-      case "SE:OpenSessionResolved":
-        this._sessions.push(message.childContext);
-        break;
-      case "SE:CloseAllByReaderResolved":
-        // Notify all children
-        for (let session of this._sessions) {
-          session.isClosed = true;
-        }
-        break;
-      default:
-        if (DEBUG) debug("Ignoring Msg: " + message.name +
-                         ", as this is not handled by SEReader instance's message handler");
-    }
+    // TODO: Bug 1119152 - Implement new idl with interfaces to detect
+    //                     secureelement state changes.
+    return true;
   }
 };
 
@@ -200,10 +190,25 @@ SESession.prototype = {
   contractID: "@mozilla.org/secureelement/session;1",
   QueryInterface: XPCOMUtils.generateQI([]),
 
+  // Private function
   _checkClosed: function _checkClosed() {
     if (this._isClosed) {
       throw new Error(SE.ERROR_BADSTATE + " Session Already Closed!");
     }
+  },
+
+  // Chrome-only function
+  onOpenLogicalChannel: function onOpenLogicalChannel(channelContext) {
+    this._channels.push(channelContext);
+  },
+
+  // Chrome-only function
+  onClose: function onClose() {
+    // Notify all children
+    for (let channel of this._channels) {
+      channel.onClose();
+    }
+    this.isClosed = true;
   },
 
   initialize: function initialize(win, sessionToken, readerCtx) {
@@ -277,32 +282,7 @@ SESession.prototype = {
   },
 
   set isClosed(isClosed) {
-    // If the new value is same as current one, (or)
-    // if the session is already closed then simply return!
-    if (this._isClosed === isClosed || this._isClosed) {
-      return;
-    }
-    // Update the state for all children
-    for (let channel of this._channels) {
-      channel.isClosed = true;
-    }
     this._isClosed = isClosed;
-    // Reset the sessionToken
-    this._sessionToken = null;
-  },
-
-  processMessage: function processMessage(message) {
-    switch (message.name) {
-      case "SE:OpenChannelResolved":
-        this._channels.push(message.childContext);
-        break;
-      case "SE:CloseAllBySessionResolved":
-        this.isClosed = true;
-        break;
-      default:
-        if (DEBUG) debug("Ignoring Msg: " + message.name +
-                         ", as this is not handled by SESession instance's message handler");
-    }
   }
 };
 
@@ -326,16 +306,22 @@ SEChannel.prototype = {
 
   openResponse: [],
 
-  type: SE.TYPE_BASIC_CHANNEL,
+  type: null,
 
   classID: Components.ID("{181ebcf4-5164-4e28-99f2-877ec6fa83b9}"),
   contractID: "@mozilla.org/secureelement/channel;1",
   QueryInterface: XPCOMUtils.generateQI([]),
 
+  // Private function
   _checkClosed: function _checkClosed() {
     if (this._isClosed) {
       throw new Error(SE.ERROR_BADSTATE +" Channel Already Closed!");
     }
+  },
+
+  // Chrome-only function
+  onClose: function onClose() {
+    this.isClosed = true;
   },
 
   initialize: function initialize(win, channelToken, isBasicChannel,
@@ -348,8 +334,7 @@ SEChannel.prototype = {
     // Update 'session' obj
     this.session = sessionCtx;
     this.openResponse = Cu.cloneInto(new Uint8Array(openResponse), win);
-    this.type = isBasicChannel ? SE.TYPE_BASIC_CHANNEL :
-                                 SE.TYPE_LOGICAL_CHANNEL;
+    this.type = isBasicChannel ? "basic" : "logical";
   },
 
   transmit: function transmit(command) {
@@ -426,19 +411,6 @@ SEChannel.prototype = {
 
   set isClosed(isClosed) {
     this._isClosed = isClosed;
-    // Reset the channelToken
-    this._channelToken = null;
-  },
-
-  processMessage: function processMessage(message) {
-    switch (message.name) {
-      case "SE:CloseChannelResolved":
-        this.isClosed = true;
-        break;
-      default:
-        if (DEBUG) debug("Ignoring Msg: " + message.name +
-                         ", as this is not handled by SEChannel instance's message handler");
-    }
   }
 };
 
@@ -576,18 +548,13 @@ SEManager.prototype = {
   receiveMessage: function receiveMessage(message) {
     let result = message.data.result;
     let data = message.data.metadata;
+    let promiseResolver = PromiseHelpers.takePromise(data.resolverId);
+    let resolver = promiseResolver.resolver;
+    let context = promiseResolver.context;
     let chromeObj = null;
     let contentObj = null;
-    let context = null;
-    let resolver = null;
+
     if (DEBUG) debug("receiveMessage(): " + message.name);
-
-    if (data) {
-      let promiseResolver = PromiseHelpers.takePromise(data.resolverId);
-      resolver = promiseResolver.resolver;
-      context = promiseResolver.context;
-    }
-
     switch (message.name) {
       case "SE:GetSEReadersResolved":
         let readers = [];
@@ -604,10 +571,10 @@ SEManager.prototype = {
         chromeObj.initialize(this._window,
                              result.sessionToken,
                              context.__DOM_IMPL__);
-        // Add the new key:'childContext' with the value: SESession instance (chromeObj).
-        // This child context will be passed to its parent instance of SEReader by
-        // notifying its handler 'processMessage'.
-        message['childContext'] = chromeObj;
+        if (context) {
+          // Notify context's handler with SESession instance
+          context.onOpenSession(chromeObj);
+        }
         contentObj = this._window.SESession._create(this._window, chromeObj);
         resolver.resolve(contentObj);
         break;
@@ -619,10 +586,10 @@ SEManager.prototype = {
                              result.openResponse,
                              data.sessionToken,
                              context.__DOM_IMPL__);
-        // Add the new key:'childContext' with the value: SEChannel instance (chromeObj).
-        // This child context will be passed to its parent instance of SESession by
-        // notifying its handler 'processMessage'.
-        message['childContext'] = chromeObj;
+        if (context) {
+          // Notify context's handler with SEChannel instance
+          context.onOpenLogicalChannel(chromeObj);
+        }
         contentObj = this._window.SEChannel._create(this._window, chromeObj);
         resolver.resolve(contentObj);
         break;
@@ -638,6 +605,10 @@ SEManager.prototype = {
       case "SE:CloseAllByReaderResolved":
       case "SE:CloseAllBySessionResolved":
       case "SE:CloseChannelResolved":
+        if (context) {
+          // Notify context's onClose handler
+          context.onClose();
+        }
         resolver.resolve();
         break;
       case "SE:GetSEReadersRejected":
@@ -654,12 +625,6 @@ SEManager.prototype = {
         debug("Could not find a handler for " + message.name);
         resolver.reject();
         break;
-    }
-    // If there is a context associated with the current 'resolverId',
-    // notify that context reference.
-    if (context) {
-      // Relay the message to the instances' handlers that originally triggered the promise request!
-      context.processMessage(message);
     }
   }
 };
