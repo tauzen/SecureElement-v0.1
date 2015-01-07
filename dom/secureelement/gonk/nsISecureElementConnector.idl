@@ -46,7 +46,7 @@ interface nsISEChannelCallback : nsISupports
   void notifyError(in DOMString error);
 };
 
-[scriptable, uuid(0b4c9d16-73c5-4b18-b839-4139d6f6a8e9)]
+[scriptable, uuid(ad12043e-c547-437f-a0dc-9ba146fcb804)]
 interface nsISecureElementConnector : nsISupports
 {
    const long SE_TYPE_UICC        = 0;
@@ -64,10 +64,10 @@ interface nsISecureElementConnector : nsISupports
     * @param callback
     *        callback to notify the result of the operation.
     */
-    void seOpenChannel(in short type,
-                       in unsigned long clientId,
-                       in DOMString aid,
-                       in nsISEChannelCallback callback);
+    void openChannel(in short type,
+                     in unsigned long clientId,
+                     in DOMString aid,
+                     in nsISEChannelCallback callback);
 
    /**
     * Exchanges APDU channel with the specific secure element type
@@ -95,16 +95,16 @@ interface nsISecureElementConnector : nsISupports
     * @param callback
     *        callback to notify the result of the operation.
     */
-    void seExchangeAPDU(in short type,
-                        in unsigned long clientId,
-                        in long channel,
-                        in octet cla,
-                        in octet ins,
-                        in octet p1,
-                        in octet p2,
-                        in DOMString data,
-                        in short le,
-                        in nsISEChannelCallback callback);
+    void exchangeAPDU(in short type,
+                      in unsigned long clientId,
+                      in long channel,
+                      in octet cla,
+                      in octet ins,
+                      in octet p1,
+                      in octet p2,
+                      in DOMString data,
+                      in short le,
+                      in nsISEChannelCallback callback);
 
    /**
     * Closes the logical communication channel to the specific secure element type
@@ -118,8 +118,8 @@ interface nsISecureElementConnector : nsISupports
     * @param callback
     *        callback to notify the result of the operation.
     */
-   void seCloseChannel(in short type,
-                       in unsigned long clientId,
-                       in long channel,
-                       in nsISEChannelCallback callback);
+   void closeChannel(in short type,
+                     in unsigned long clientId,
+                     in long channel,
+                     in nsISEChannelCallback callback);
 };

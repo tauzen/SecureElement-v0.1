@@ -80,8 +80,8 @@ PromiseHelpersSubclass.prototype = {
 
   rejectWithSEError: function rejectWithSEError(aReason) {
     return this.createSEPromise((aResolverId) => {
-      debug("SEError: " + aReason);
-      this.takePromiseResolver(aResolverId).reject(aReason);
+      debug("rejectWithSEError : " + aReason);
+      this.takePromiseResolver(aResolverId).reject(new Error(aReason));
     });
   }
 };
@@ -102,10 +102,10 @@ SEReader.prototype = {
 
   _sessions: [],
 
-  type: SE.TYPE_UICC,
+  type: null,
 
   classID: Components.ID("{1c7bdba3-cd35-4f8b-a546-55b3232457d5}"),
-  contractID: "@mozilla.org/secureelement/SEReader;1",
+  contractID: "@mozilla.org/secureelement/reader;1",
   QueryInterface: XPCOMUtils.generateQI([]),
 
   initialize: function initialize(win, type) {
@@ -115,9 +115,8 @@ SEReader.prototype = {
 
   openSession: function openSession() {
     if (!this.isSEPresent) {
-      return PromiseHelpers.rejectWithSEError(
-        SE.ERROR_GENERIC + " SecureElement : '" + this.type +
-        "' is not present. Unable to open the Session!");
+      return PromiseHelpers.rejectWithSEError(SE.ERROR_GENERIC +
+             " SecureElement : '" + this.type + "' is not present. Unable to open the Session!");
     }
 
     return PromiseHelpers.createSEPromiseWithCtx(this, (aResolverId) => {
@@ -160,10 +159,10 @@ SEReader.prototype = {
     });
   },
 
-  receiveMessage: function receiveMessage(aMessage) {
-    switch (aMessage.name) {
+  processMessage: function processMessage(message) {
+    switch (message.name) {
       case "SE:OpenSessionResolved":
-        this._sessions.push(aMessage.childContext);
+        this._sessions.push(message.childContext);
         break;
       case "SE:CloseAllByReaderResolved":
         // Notify all children
@@ -172,7 +171,7 @@ SEReader.prototype = {
         }
         break;
       default:
-        if (DEBUG) debug("Ignoring Msg: " + aMessage.name +
+        if (DEBUG) debug("Ignoring Msg: " + message.name +
                          ", as this is not handled by SEReader instance's message handler");
     }
   }
@@ -189,8 +188,6 @@ function SESession() {}
 SESession.prototype = {
   _window: null,
 
-  _aid: [],
-
   _sessionToken: null,
 
   _channels: [],
@@ -200,7 +197,7 @@ SESession.prototype = {
   reader: null,
 
   classID: Components.ID("{2b1809f8-17bd-4947-abd7-bdef1498561c}"),
-  contractID: "@mozilla.org/secureelement/SESession;1",
+  contractID: "@mozilla.org/secureelement/session;1",
   QueryInterface: XPCOMUtils.generateQI([]),
 
   _checkClosed: function _checkClosed() {
@@ -221,19 +218,16 @@ SESession.prototype = {
     this._checkClosed();
 
     if (!aid) {
-      // According to SIMalliance_OpenMobileAPI v4 spec,
-      // in case of UICC it is recommended to reject the opening of the logical
+      // According to SIMalliance_OpenMobileAPI v4 spec, if the aid is null
+      // (in case of UICC) it is recommended to reject the opening of the logical
       // channel without a specific AID.
       if (this.reader.type === SE.TYPE_UICC) {
         return PromiseHelpers.rejectWithSEError(SE.ERROR_GENERIC +
-                                                " AID is not specified!");
+               " AID is not specified!");
       }
     } else if (aid.length < SE.MIN_AID_LEN || aid.length > SE.MAX_AID_LEN) {
       return PromiseHelpers.rejectWithSEError(SE.ERROR_GENERIC +
-            " Invalid AID length - " + aid.length);
-    } else {
-      // copy the aid
-      this._aid = aid.subarray(0);
+             " Invalid AID length - " + aid.length);
     }
 
     return PromiseHelpers.createSEPromiseWithCtx(this, (aResolverId) => {
@@ -249,7 +243,7 @@ SESession.prototype = {
        */
       cpmm.sendAsyncMessage("SE:OpenChannel", {
         resolverId: aResolverId,
-        aid: this._aid,
+        aid: aid,
         sessionToken: this._sessionToken,
         type: this.reader.type,
         appId: this._window.document.nodePrincipal.appId
@@ -297,16 +291,16 @@ SESession.prototype = {
     this._sessionToken = null;
   },
 
-  receiveMessage: function receiveMessage(aMessage) {
-    switch (aMessage.name) {
+  processMessage: function processMessage(message) {
+    switch (message.name) {
       case "SE:OpenChannelResolved":
-        this._channels.push(aMessage.childContext);
+        this._channels.push(message.childContext);
         break;
       case "SE:CloseAllBySessionResolved":
         this.isClosed = true;
         break;
       default:
-        if (DEBUG) debug("Ignoring Msg: " + aMessage.name +
+        if (DEBUG) debug("Ignoring Msg: " + message.name +
                          ", as this is not handled by SESession instance's message handler");
     }
   }
@@ -324,8 +318,6 @@ SEChannel.prototype = {
 
   _channelToken: null,
 
-  _aid: [],
-
   _sessionToken: null,
 
   _isClosed: false,
@@ -337,7 +329,7 @@ SEChannel.prototype = {
   type: SE.TYPE_BASIC_CHANNEL,
 
   classID: Components.ID("{181ebcf4-5164-4e28-99f2-877ec6fa83b9}"),
-  contractID: "@mozilla.org/secureelement/SEChannel;1",
+  contractID: "@mozilla.org/secureelement/channel;1",
   QueryInterface: XPCOMUtils.generateQI([]),
 
   _checkClosed: function _checkClosed() {
@@ -347,13 +339,12 @@ SEChannel.prototype = {
   },
 
   initialize: function initialize(win, channelToken, isBasicChannel,
-                                  openResponse, sessionToken, aid, sessionCtx) {
+                                  openResponse, sessionToken, sessionCtx) {
     this._window = win;
     // Update the 'channel token' that identifies and represents this
     // instance of the object
     this._channelToken = channelToken;
     this._sessionToken = sessionToken;
-    this._aid = aid;
     // Update 'session' obj
     this.session = sessionCtx;
     this.openResponse = Cu.cloneInto(new Uint8Array(openResponse), win);
@@ -376,7 +367,7 @@ SEChannel.prototype = {
       ins: command.ins,
       p1: command.p1,
       p2: command.p2,
-      data: command.data || null,
+      data: command.data,
       le: command.le
     };
 
@@ -391,7 +382,6 @@ SEChannel.prototype = {
                        this channel belongs to.
        * channelToken: Token that identifies the current channel over which
                        'c-apdu' is being sent.
-       * aid         : AID that identifies the applet on SecureElement
        * appId       : Current appId obtained from 'Principal' obj
        */
       cpmm.sendAsyncMessage("SE:TransmitAPDU", {
@@ -400,7 +390,6 @@ SEChannel.prototype = {
         type: this.session.reader.type,
         sessionToken: this._sessionToken,
         channelToken: this._channelToken,
-        aid: this._aid,
         appId: this._window.document.nodePrincipal.appId
       });
     });
@@ -419,7 +408,6 @@ SEChannel.prototype = {
                        this channel belongs to.
        * channelToken: Token that identifies the current channel over which
                        'c-apdu' is being sent.
-       * aid         : AID that identifies the applet on SecureElement
        * appId       : Current appId obtained from 'Principal' obj
        */
       cpmm.sendAsyncMessage("SE:CloseChannel", {
@@ -427,7 +415,6 @@ SEChannel.prototype = {
         type: this.session.reader.type,
         sessionToken: this._sessionToken,
         channelToken: this._channelToken,
-        aid: this._aid,
         appId: this._window.document.nodePrincipal.appId
       });
     });
@@ -443,15 +430,13 @@ SEChannel.prototype = {
     this._channelToken = null;
   },
 
-  receiveMessage: function receiveMessage(aMessage) {
-    switch (aMessage.name) {
-      case "SE:TransmitAPDUResolved": // Do nothing
-        break;
+  processMessage: function processMessage(message) {
+    switch (message.name) {
       case "SE:CloseChannelResolved":
         this.isClosed = true;
         break;
       default:
-        if (DEBUG) debug("Ignoring Msg: " + aMessage.name +
+        if (DEBUG) debug("Ignoring Msg: " + message.name +
                          ", as this is not handled by SEChannel instance's message handler");
     }
   }
@@ -477,7 +462,7 @@ SECommand.prototype = {
   le: -1,
 
   classID: Components.ID("{cb8ccb1c-0e99-4a62-bf7d-11acc13848e0}"),
-  contractID: "@mozilla.org/secureelement/SECommand;1",
+  contractID: "@mozilla.org/secureelement/command;1",
   QueryInterface: XPCOMUtils.generateQI([Ci.nsISupports]),
 
   __init: function __init(cla, ins, p1, p2, data, le) {
@@ -506,7 +491,7 @@ SEResponse.prototype = {
   channel: null,
 
   classID: Components.ID("{58bc6c7b-686c-47cc-8867-578a6ed23f4e}"),
-  contractID: "@mozilla.org/secureelement/SEResponse;1",
+  contractID: "@mozilla.org/secureelement/response;1",
   QueryInterface: XPCOMUtils.generateQI([]),
 
   initialize: function initialize(sw1, sw2, response, channelCtx) {
@@ -531,7 +516,7 @@ SEManager.prototype = {
   _window: null,
 
   classID: Components.ID("{4a8b6ec0-4674-11e4-916c-0800200c9a66}"),
-  contractID: "@mozilla.org/secureelement/SEManager;1",
+  contractID: "@mozilla.org/secureelement/manager;1",
   QueryInterface: XPCOMUtils.generateQI([
     Ci.nsIDOMGlobalPropertyInitializer,
     Ci.nsISupportsWeakReference,
@@ -588,14 +573,14 @@ SEManager.prototype = {
     });
   },
 
-  receiveMessage: function receiveMessage(aMessage) {
-    let result = aMessage.data.result;
-    let data = aMessage.data.metadata;
+  receiveMessage: function receiveMessage(message) {
+    let result = message.data.result;
+    let data = message.data.metadata;
     let chromeObj = null;
     let contentObj = null;
     let context = null;
     let resolver = null;
-    if (DEBUG) debug("receiveMessage(): " + aMessage.name);
+    if (DEBUG) debug("receiveMessage(): " + message.name);
 
     if (data) {
       let promiseResolver = PromiseHelpers.takePromise(data.resolverId);
@@ -603,7 +588,7 @@ SEManager.prototype = {
       context = promiseResolver.context;
     }
 
-    switch (aMessage.name) {
+    switch (message.name) {
       case "SE:GetSEReadersResolved":
         let readers = [];
         for (let i = 0; i < result.readerTypes.length; i++) {
@@ -616,11 +601,13 @@ SEManager.prototype = {
         break;
       case "SE:OpenSessionResolved":
         chromeObj = new SESession();
-        chromeObj.initialize(this._window, result.sessionToken, context.__DOM_IMPL__);
+        chromeObj.initialize(this._window,
+                             result.sessionToken,
+                             context.__DOM_IMPL__);
         // Add the new key:'childContext' with the value: SESession instance (chromeObj).
         // This child context will be passed to its parent instance of SEReader by
-        // notifying its listener 'receiveMessage'.
-        aMessage['childContext'] = chromeObj;
+        // notifying its handler 'processMessage'.
+        message['childContext'] = chromeObj;
         contentObj = this._window.SESession._create(this._window, chromeObj);
         resolver.resolve(contentObj);
         break;
@@ -631,18 +618,19 @@ SEManager.prototype = {
                              result.isBasicChannel,
                              result.openResponse,
                              data.sessionToken,
-                             data.aid,
                              context.__DOM_IMPL__);
         // Add the new key:'childContext' with the value: SEChannel instance (chromeObj).
         // This child context will be passed to its parent instance of SESession by
-        // notifying its listener 'receiveMessage'.
-        aMessage['childContext'] = chromeObj;
+        // notifying its handler 'processMessage'.
+        message['childContext'] = chromeObj;
         contentObj = this._window.SEChannel._create(this._window, chromeObj);
         resolver.resolve(contentObj);
         break;
       case "SE:TransmitAPDUResolved":
         chromeObj = new SEResponse();
-        chromeObj.initialize(result.sw1, result.sw2, result.response,
+        chromeObj.initialize(result.sw1,
+                             result.sw2,
+                             result.response,
                              context.__DOM_IMPL__);
         contentObj = this._window.SEResponse._create(this._window, chromeObj);
         resolver.resolve(contentObj);
@@ -663,7 +651,7 @@ SEManager.prototype = {
         resolver.reject(error);
         break;
       default:
-        debug("Could not find a handler for " + aMessage.name);
+        debug("Could not find a handler for " + message.name);
         resolver.reject();
         break;
     }
@@ -671,7 +659,7 @@ SEManager.prototype = {
     // notify that context reference.
     if (context) {
       // Relay the message to the instances' handlers that originally triggered the promise request!
-      context.receiveMessage(aMessage);
+      context.processMessage(message);
     }
   }
 };

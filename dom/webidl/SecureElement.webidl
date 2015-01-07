@@ -25,7 +25,7 @@ enum SEChannelType {
 
 [CheckPermissions="secureelement-manage",
  AvailableIn="PrivilegedApps",
- JSImplementation="@mozilla.org/secureelement/SEReader;1"]
+ JSImplementation="@mozilla.org/secureelement/reader;1"]
 interface SEReader {
 
   // 'true' if a secure element is present
@@ -53,7 +53,7 @@ interface SEReader {
 
 [CheckPermissions="secureelement-manage",
  AvailableIn="PrivilegedApps",
- JSImplementation="@mozilla.org/secureelement/SESession;1"]
+ JSImplementation="@mozilla.org/secureelement/session;1"]
 interface SESession {
 
   // 'reader' that provides this session
@@ -88,7 +88,7 @@ interface SESession {
 
 [CheckPermissions="secureelement-manage",
  AvailableIn="PrivilegedApps",
- JSImplementation="@mozilla.org/secureelement/SEChannel;1"]
+ JSImplementation="@mozilla.org/secureelement/channel;1"]
 interface SEChannel {
 
   // 'session' obj this channel is bound to
@@ -129,7 +129,7 @@ interface SEChannel {
 // Interface that represents an APDU command to be sent to a secure element.
 [CheckPermissions="secureelement-manage",
  AvailableIn="PrivilegedApps",
- JSImplementation="@mozilla.org/secureelement/SECommand;1",
+ JSImplementation="@mozilla.org/secureelement/command;1",
  Constructor(octet cla, octet ins, octet p1, octet p2, optional sequence<octet>? data = null, optional short le= -1)]
 interface SECommand {
 
@@ -144,7 +144,7 @@ interface SECommand {
 
 [CheckPermissions="secureelement-manage",
  AvailableIn="PrivilegedApps",
- JSImplementation="@mozilla.org/secureelement/SEResponse;1"]
+ JSImplementation="@mozilla.org/secureelement/response;1"]
 interface SEResponse {
    // Response received on this 'channel' object.
    readonly attribute SEChannel channel;

@@ -59,7 +59,7 @@ const SE_IPC_SECUREELEMENT_MSG_NAMES = [
   "SE:IsSEPresent"
 ];
 
-const SECUREELEMENTMANAGER_CONTRACTID = "@mozilla.org/secureelement/manager;1";
+const SECUREELEMENTMANAGER_CONTRACTID = "@mozilla.org/secureelement/parent-manager;1";
 const SECUREELEMENTMANAGER_CID =
   Components.ID("{48f4e650-28d2-11e4-8c21-0800200c9a66}");
 const NS_XPCOM_SHUTDOWN_OBSERVER_ID = "xpcom-shutdown";
@@ -86,7 +86,7 @@ SEConnectorFactory.prototype = {
         return UiccConnector;
       case SE.TYPE_ESE:
       default:
-        if (DEBUG) debug('UnSupported SEConnector : ' + type);
+        if (DEBUG) debug("UnSupported SEConnector : " + type);
         return null;
     }
   }
@@ -174,7 +174,7 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
     // Register the new SecureElement target.
     registerSecureElementTarget: function(message, readers) {
       let appInfoMap = this.appInfoMap;
-      let appId = message.json.appId;
+      let appId = message.data.appId;
       let targetInfo = appInfoMap[appId];
 
       // If the application Id is already registered
@@ -1272,7 +1272,7 @@ SecureElementManager.prototype = {
     let promiseStatus = "Rejected";
     let seReaderTypes = this._getAvailableReaders();
     let options = {
-      metadata: msg.json
+      metadata: msg.data
     };
     if (seReaderTypes.length > 0) {
       gMap.registerSecureElementTarget(msg, seReaderTypes);
@@ -1286,29 +1286,29 @@ SecureElementManager.prototype = {
   handleOpenSessionRequest: function(msg) {
     let promiseStatus = "Rejected";
     let options = {
-      metadata: msg.json
+      metadata: msg.data
     };
     // Perform two checks before allowing opening of session
     // 1. Check if the type is already a supported one
     //          AND
     // 2. Check if the 'session type' that content is attempting to connect to is
     //    in a 'present state' by queriying the appropriate 'connector obj'.
-    if (gMap.isSupportedReaderType(msg.json) &&
-      this.connectorFactory.getConnector(msg.json.type).isSEPresent(PREFERRED_UICC_CLIENTID)) {
+    if (gMap.isSupportedReaderType(msg.data) &&
+      this.connectorFactory.getConnector(msg.data.type).isSEPresent(PREFERRED_UICC_CLIENTID)) {
       promiseStatus = "Resolved";
       // Add the result
-      options['result'] = {sessionToken: gMap.addSession(msg.json)};
+      options['result'] = {sessionToken: gMap.addSession(msg.data)};
     }
     msg.target.sendAsyncMessage(msg.name + promiseStatus, options);
   },
 
   handleRequest: function(msg) {
     let handler = this.handlers[msg.name].bind(this);
-    handler(msg.json, function(result) {
+    handler(msg.data, function(result) {
       let promiseStatus = (result.error === SE.ERROR_NONE) ? "Resolved" : "Rejected";
       let options = {
 	result: result,
-	metadata: msg.json
+	metadata: msg.data
       };
       msg.target.sendAsyncMessage(msg.name + promiseStatus, options);
     });
@@ -1355,7 +1355,7 @@ SecureElementManager.prototype = {
 	this.handleRequest(msg);
 	break;
       case "SE:IsSEPresent":
-        return this.connectorFactory.getConnector(msg.json.type).
+        return this.connectorFactory.getConnector(msg.data.type).
           isSEPresent(PREFERRED_UICC_CLIENTID);
     }
     return null;
@@ -1411,14 +1411,14 @@ SecureElementConnector.prototype = {
   QueryInterface: XPCOMUtils.generateQI([
     Ci.nsISecureElementConnector]),
 
-  seOpenChannel: function(type, clientId, aid, callback) {
+  openChannel: function(type, clientId, aid, callback) {
     this._ensureParentProcess();
 
     let connector = this._connectorFactory.getConnector(this._getType(type));
     connector.doOpenChannel(clientId, aid, callback);
   },
 
-  seExchangeAPDU: function(type, clientId, channel, cla, ins, p1, p2, data, le, callback) {
+  exchangeAPDU: function(type, clientId, channel, cla, ins, p1, p2, data, le, callback) {
     this._ensureParentProcess();
 
     let connector = this._connectorFactory.getConnector(this._getType(type));
@@ -1436,7 +1436,7 @@ SecureElementConnector.prototype = {
     connector.doTransmit(clientId, commandAPDU, callback);
   },
 
-  seCloseChannel: function(type, clientId, channel, callback) {
+  closeChannel: function(type, clientId, channel, callback) {
     this._ensureParentProcess();
 
     let connector = this._connectorFactory.getConnector(this._getType(type));
