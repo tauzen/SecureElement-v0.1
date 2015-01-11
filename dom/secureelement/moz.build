@@ -3,7 +3,9 @@
 # License, v. 2.0. If a copy of the MPL was not distributed with this
 # file, You can obtain one at http://mozilla.org/MPL/2.0/.
 #
-# Copyright © 2015 Deutsche Telekom, Inc.
+# Copyright © 2014 Deutsche Telekom, Inc.
+
+XPIDL_MODULE = 'dom_secureelement'
 
 if CONFIG['MOZ_SECUREELEMENT']:
     EXTRA_COMPONENTS += [
@@ -11,12 +13,12 @@ if CONFIG['MOZ_SECUREELEMENT']:
         'DOMSecureElement.manifest',
     ]
 
-XPIDL_MODULE = 'dom_secureelement'
-
 if CONFIG['MOZ_WIDGET_TOOLKIT'] == 'gonk' and CONFIG['MOZ_SECUREELEMENT']:
     EXTRA_COMPONENTS += [
         'gonk/SecureElement.js',
         'gonk/SecureElement.manifest',
+        'gonk/UiccConnector.js',
+        'gonk/UiccConnector.manifest',
     ]
     XPIDL_SOURCES += [
         'gonk/nsISecureElementConnector.idl',

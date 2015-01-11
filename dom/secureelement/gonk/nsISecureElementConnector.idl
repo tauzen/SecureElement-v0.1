@@ -46,17 +46,12 @@ interface nsISEChannelCallback : nsISupports
   void notifyError(in DOMString error);
 };
 
-[scriptable, uuid(ac915cb3-f621-4f64-b67e-359057bec1ee)]
+[scriptable, uuid(715663ce-e310-4db4-8a76-aaf618e8b786)]
 interface nsISecureElementConnector : nsISupports
 {
-   const long SE_TYPE_UICC        = 0;
-   const long SE_TYPE_ESE         = 1;
-
    /**
     * Open a logical communication channel with the specific secure element type
     *
-    * @param type
-    *        One of SE_TYPE_XXX.
     * @param clientId
     *        ClientId on which the logical channel will be established.
     * @param aid
@@ -64,22 +59,18 @@ interface nsISecureElementConnector : nsISupports
     * @param callback
     *        callback to notify the result of the operation.
     */
-    void openChannel(in short type,
-                     in unsigned long clientId,
+    void openChannel(in unsigned long clientId,
                      in DOMString aid,
                      in nsISEChannelCallback callback);
 
    /**
     * Exchanges APDU channel with the specific secure element type
     *
-    * @param type
-    *        One of SE_TYPE_XXX.
     * @param clientId
     *        ClientId on which the logical channel will be established.
-    * @param channel
-    *        Channel numberon which the C-APDU is being exchanged.
     * @param cla
-             Class Byte
+             Class Byte. Encode (mask channel) as per GP Card spec v2.2,
+    *        section 11.1.4.2.
     * @param ins
              Instruction Byte
     * @param p1
@@ -95,9 +86,7 @@ interface nsISecureElementConnector : nsISupports
     * @param callback
     *        callback to notify the result of the operation.
     */
-    void exchangeAPDU(in short type,
-                      in unsigned long clientId,
-                      in long channel,
+    void exchangeAPDU(in unsigned long clientId,
                       in octet cla,
                       in octet ins,
                       in octet p1,
@@ -109,8 +98,6 @@ interface nsISecureElementConnector : nsISupports
    /**
     * Closes the logical communication channel to the specific secure element type
     *
-    * @param type
-    *        One of SE_TYPE_XXX.
     * @param clientId
     *        ClientId on which the logical channel will be established.
     * @param channel
@@ -118,8 +105,7 @@ interface nsISecureElementConnector : nsISupports
     * @param callback
     *        callback to notify the result of the operation.
     */
-   void closeChannel(in short type,
-                     in unsigned long clientId,
+   void closeChannel(in unsigned long clientId,
                      in long channel,
                      in nsISEChannelCallback callback);
 };

@@ -19,6 +19,7 @@
 this.DEBUG_ALL = true;
 
 // Set individually to debug specific layers
+this.DEBUG_CONNECTOR = DEBUG_ALL || false;
 this.DEBUG_SE = DEBUG_ALL || false ;
 
 // Maximun logical channels per session.

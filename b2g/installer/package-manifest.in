@@ -401,6 +401,8 @@
 #ifdef MOZ_SECUREELEMENT
 @BINPATH@/components/SecureElement.js
 @BINPATH@/components/SecureElement.manifest
+@BINPATH@/components/UiccConnector.js
+@BINPATH@/components/UiccConnector.manifest
 #endif
 
 ; WiFi, NetworkManager, NetworkStats

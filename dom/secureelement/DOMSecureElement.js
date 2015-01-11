@@ -347,6 +347,22 @@ SEChannel.prototype = {
              " Extended APDU is not supported!");
     }
 
+    if ((command.cla & 0x80 === 0) && ((command.cla & 0x60) !== 0x20)) {
+      if (ins === SE.INS_MANAGE_CHANNEL) {
+        return PromiseHelpers.rejectWithSEError(SE.ERROR_SECURITY +
+               ", MANAGE CHANNEL command not permitted");
+      }
+      if ((command.ins === SE.INS_SELECT) && (command.p1 == 0x04)) {
+	// SELECT by DF Name (p1=04) is not allowed
+        return PromiseHelpers.rejectWithSEError(SE.ERROR_SECURITY +
+               ", SELECT command not permitted");
+	throw new Error(SE.ERROR_SECURITY);
+      }
+      debug("Attempting to transmit an ISO command");
+    } else {
+      debug("Attempting to transmit GlobalPlatform command");
+    }
+
     let commandAPDU = {
       cla: command.cla,
       ins: command.ins,

@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-# SecureElementManager
-component {48f4e650-28d2-11e4-8c21-0800200c9a66} SecureElement.js
-contract @mozilla.org/secureelement/parent-manager;1 {48f4e650-28d2-11e4-8c21-0800200c9a66}
-category profile-after-change SecureElementManager @mozilla.org/secureelement/parent-manager;1
+# UiccConnector
+component {8e040e5d-c8c3-4c1b-ac82-c00d25d8c4a4} UiccConnector.js
+contract @mozilla.org/secureelement/connector;1 {8e040e5d-c8c3-4c1b-ac82-c00d25d8c4a4}
+category profile-after-change UiccConnector @mozilla.org/secureelement/connector;1

@@ -17,7 +17,7 @@
 
 "use strict";
 
-/* globals dump, Components, XPCOMUtils, SE, Services, UiccConnector,
+/* globals dump, Components, XPCOMUtils, SE, Services,
    SEUtils, ppmm, gMap, libcutils */
 
 const {classes: Cc, interfaces: Ci, utils: Cu } = Components;
@@ -43,13 +43,6 @@ function debug(s) {
   }
 }
 
-// TODO: Bug 1118099  - Add multi-sim support.
-// In the Multi-sim, there is more than one client.
-// For now, use default clientID as 0. Ideally, SE parent process would like to
-// know which clients (uicc slot) are connected to CLF over SWP interface.
-const PREFERRED_UICC_CLIENTID =
-  libcutils.property_get("ro.moz.se.def_client_id", "0");
-
 const SE_IPC_SECUREELEMENT_MSG_NAMES = [
   "SE:GetSEReaders",
   "SE:OpenSession",
@@ -61,39 +54,36 @@ const SE_IPC_SECUREELEMENT_MSG_NAMES = [
 ];
 
 const SECUREELEMENTMANAGER_CONTRACTID =
-  "@mozilla.org/secureelement/semanager;1";
+  "@mozilla.org/secureelement/parent-manager;1";
 const SECUREELEMENTMANAGER_CID =
   Components.ID("{48f4e650-28d2-11e4-8c21-0800200c9a66}");
 const NS_XPCOM_SHUTDOWN_OBSERVER_ID = "xpcom-shutdown";
-
-const SECUREELEMENTCONNECTOR_CONTRACTID =
-  "@mozilla.org/secureelement/connector;1";
-const SECUREELEMENTCONNECTOR_CID =
-  Components.ID("{31839213-23f5-41f7-8380-090b3e28b503}");
 
 XPCOMUtils.defineLazyServiceGetter(this, "ppmm",
                                    "@mozilla.org/parentprocessmessagemanager;1",
                                    "nsIMessageBroadcaster");
 
-// @todo i think we should remove this
-function SEConnectorFactory() {}
+XPCOMUtils.defineLazyServiceGetter(this, "UiccConnector",
+                                   "@mozilla.org/secureelement/connector;1",
+                                   "nsISecureElementConnector");
 
-/**
- * Factory like pattern for getting the Connector obj.
- */
-SEConnectorFactory.prototype = {
+// TODO: Bug 1118099  - Add multi-sim support.
+// In the Multi-sim, there is more than one client.
+// For now, use default clientID as 0. Ideally, SE parent process would like to
+// know which clients (uicc slot) are connected to CLF over SWP interface.
+const PREFERRED_UICC_CLIENTID =
+  libcutils.property_get("ro.moz.se.def_client_id", "0");
 
-  getConnector: function(type) {
-    switch (type) {
-      case SE.TYPE_UICC:
-        return UiccConnector;
-      case SE.TYPE_ESE:
-      default:
-        debug("UnSupported SEConnector : " + type);
-        return null;
-    }
+function getConnector(type) {
+  switch (type) {
+    case SE.TYPE_UICC:
+      return UiccConnector;
+    case SE.TYPE_ESE:
+    default:
+      debug("UnSupported SEConnector : " + type);
+      return null;
   }
-};
+}
 
 /**
  * 'gMap' is a nested dictionary object that manages all the information
@@ -157,11 +147,11 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
                      channel :]
               }] // End of 'channels'
         }] // End of 'sessions'
-     [appId : // (key = '1025')
-         ...
-         ...
-         ...
-     ]} */
+    [appId : // (key = '1025')
+        ...
+        ...
+        ...
+    ]} */
     appInfoMap: {},
 
     uuidGenerator: null,
@@ -348,8 +338,8 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
       return token;
     },
 
-    // Remove the given ''channel' entry based on type.
-    // Note that ''channel' will be unique per type
+    // Remove the given channel entry based on type.
+    // Note that 'channel' will be unique per type
     // @todo refactoring needed
     removeChannel: function(channel, type) {
       let targets = this.appInfoMap;
@@ -425,418 +415,6 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
 });
 
 /**
- * 'UiccConnector' object is a wrapper over iccProvider's channel management
- * related interfaces.
- *
- * This object exposes the following public methods:
- * start()
- * stop()
- * doOpenChannel(clientId, aid, callback)
- * doExchangeAPDU(clientId, command, callback)
- * doCloseChannel(clientId, channel, callback)
- * doCloseAll(clientId, [channels], callback)
- * @todo move to separate file with IccListnerCtx
- */
-XPCOMUtils.defineLazyGetter(this, "UiccConnector", function() {
-  return {
-    _iccProvider: null,
-
-    _isPresent: false,
-
-    /**
-     * nsIIccListener interface methods.
-     */
-    notifyStkCommand: function() {},
-
-    notifyStkSessionEnd: function() {},
-
-    notifyIccInfoChanged: function() {},
-
-    notifyCardStateChanged: function() {
-      this._updatePresenceState();
-    },
-
-    // Initializes iccListener context per clientId to monitor UICC state
-    start: function() {
-      this._getProvider().registerIccMsg(PREFERRED_UICC_CLIENTID, this);
-
-      // Update the state in order to avoid race condition.
-      // By this time, 'notifyCardStateChanged (with proper card state)'
-      // may have occurred already before this instance initialization.
-      this._updatePresenceState();
-    },
-
-    // Detaches the listener and stops monitoring UICC state changes.
-    stop: function() {
-      this._getProvider().unregisterIccMsg(PREFERRED_UICC_CLIENTID, this);
-    },
-
-    /**
-     * Opens a supplementary channel on a given clientId
-     *
-     * @param clientId
-     *        ClientId representing a UICC / SIM slot
-     * @param aid
-     *        Application Identifier identifying the applet on the card.
-     * @param callback
-     *        Callback interface that implements 'nsISEChannelCallback'.
-     *        The result will be notified either through
-     *        'notifyOpenChannelSuccess(channel, openResponse)' (or)
-     *        'notifyError(error)'.
-     * @todo remove self, use arrow functions
-     */
-    doOpenChannel: function(clientId, aid, callback) {
-      this._checkPresence(clientId);
-
-      let aidLen = aid ? aid.length : 0;
-      if (aidLen === 0) {
-        // According to SIMalliance_OpenMobileAPI v3 draft,
-        // it is recommended not to support it.
-        debug("AID is not set. Reject the openChannel request!");
-        throw new Error(SE.ERROR_SECURITY);
-      }
-      // Note that 'aid' is a string, and therefore 
-      // max length = SE.MAX_AID_LEN * 2
-      if (aidLen < SE.MIN_AID_LEN || aidLen > SE.MAX_AID_LEN * 2) {
-        debug("Invalid AID length : " + aidLen);
-        throw new Error(SE.ERROR_GENERIC);
-      }
-
-      // TODO: Bug 1118106 : Handle Resource management / leaks by persisting
-      //                     the newly opened channel in some persistent
-      //                     storage so that when this module gets restarted
-      //                     (say after opening a channel) in the event of
-      //                     some erroneous conditions such as gecko restart /,
-      //                     crash it can read the persistent storage to check
-      //                     if there are any held resources. (opened channels)
-      //                     and close them.
-      let self = this;
-      this._getProvider().iccOpenChannel(clientId, aid, {
-        notifyOpenChannelSuccess: function(channel) {
-          self._doGetOpenResponse(clientId, channel, 0x00, function(result) {
-            if (callback) {
-              callback.notifyOpenChannelSuccess(channel, result.response);
-            }
-          });
-        },
-
-        notifyError: function(reason) {
-          debug("Failed to open the channel to AID : " + aid +
-                ", Rejected with Reason : " + reason);
-          if (callback) {
-            callback.notifyError(reason);
-          }
-        }
-      });
-    },
-
-    /**
-     * Transmit the C-APDU (command) on given clientId.
-     *
-     * @param clientId
-     *        ClientId representing a UICC / SIM slot
-     * @param command
-     *        Command APDU ('cla', 'ins', 'p1', 'p2', 'data', 'le').
-     * @param callback
-     *        Callback interface that implements 'nsISEChannelCallback'.
-     *        The result will be notified either through,
-     *        'notifyExchangeAPDUResponse(sw1, sw2, response)' (or)
-     *        'notifyError(error)'.
-     */
-    doExchangeAPDU: function(clientId, command, callback) {
-      this._checkPresence(clientId);
-
-      let cla = command.cla;
-      let ins = command.ins;
-      let p1 = command.p1;
-      let p2 = command.p2;
-      let data = null;
-      let appendLe = (command.data !== null) && (command.le !== -1);
-      // Note that P3 of the C-TPDU is set to ‘00’ in Case 1
-      // (only headers) scenarios
-
-      let p3 = command.data ? command.data.length :
-              (command.le !== -1 ? command.le : 0x00);
-
-      // At this point perform more sanity checks on the c-apdu
-      if (p3 + SE.APDU_HEADER_LEN > SE.MAX_APDU_LEN) {
-        debug("Data length exceeds max limit - " + SE.MAX_APDU_LEN +
-              " Extended APDU is not supported! : " + command.length);
-        throw new Error(SE.ERROR_GENERIC);
-      }
-
-      if ((cla & 0x80 === 0) && ((cla & 0x60) !== 0x20)) {
-        if (ins === SE.INS_MANAGE_CHANNEL) {
-          debug("MANAGE CHANNEL command not permitted");
-          throw new Error(SE.ERROR_SECURITY);
-        }
-        if ((ins === SE.INS_SELECT) && (p1 == 0x04)) {
-          // SELECT by DF Name (p1=04) is not allowed
-          debug("SELECT command not permitted");
-          throw new Error(SE.ERROR_SECURITY);
-        }
-        debug("Attempting to transmit an ISO command");
-      } else {
-        debug("Attempting to transmit GlobalPlatform command");
-      }
-
-      // Check p3 > 0 AND the command.data length > 0. The second condition is
-      // needed to explicitly check if there are 'data bytes' indeed. If there
-      // are no 'data bytes' then 'p3' will be interpreted as 'Le'.
-      if ((p3 > 0) && (command.data.length > 0) &&
-          (command.data.length < SE.MAX_APDU_LEN)) {
-        let commandData = new Uint8Array(p3);
-        let offset = 0;
-        while (offset < SE.MAX_APDU_LEN && offset < p3) {
-          commandData[offset] = command.data[offset];
-          offset++;
-        }
-        data = SEUtils.byteArrayToHexString(commandData);
-      }
-      if (data && appendLe) {
-        // Append 'le' value to data
-        let leHexStr = SEUtils.byteArrayToHexString([
-          command.le & 0xFF, (command.le >> 8) & 0xFF
-        ]);
-        data += leHexStr;
-      }
-      let channel = this._getChannelNumber(cla);
-      debug("transmit on Channel # " + channel);
-
-      // Pass empty response '' as args as we are not interested in appended
-      // responses yet!
-      this._doIccExchangeAPDU(clientId, channel, cla, ins,
-                              p1, p2, p3, data, "", callback);
-    },
-
-    /**
-     * Closes the channel on given clientId.
-     *
-     * @param clientId
-     *        ClientId representing a UICC / SIM slot
-     * @param channel
-     *        Channel number to be closed
-     * @param callback
-     *        Callback interface that implements 'nsISEChannelCallback'.
-     *        The result will be notified either through
-     *        'notifyCloseChannelSuccess()' (or) 'notifyError(error)'.
-     */
-    doCloseChannel: function(clientId, channel, callback) {
-      this._checkPresence(clientId);
-
-      this._getProvider().iccCloseChannel(clientId, channel, {
-        notifyCloseChannelSuccess: function() {
-          ("doCloseChannel successfully closed the channel # : " + channel);
-          if (callback) {
-            callback.notifyCloseChannelSuccess();
-          }
-        },
-
-        notifyError: function(reason) {
-          debug("Failed to close the channel #  : " + channel +
-                ", Rejected with Reason : " + reason);
-          if (callback) {
-            callback.notifyError(reason);
-          }
-        }
-      });
-    },
-
-    // Closes all the channels on given clientId.
-    // @todo replace for with forEach
-    // @todo notifyChannelSuccess, notifyError should be defined
-    // outside the loop
-    doCloseAll: function(clientId, channels, callback) {
-      this._checkPresence(clientId);
-
-      if (channels.length === 0) {
-        return callback({ error: SE.ERROR_BADSTATE,
-                          reason: "No Active Channels to be closed!" });
-      }
-
-      let cbCnt = 0;
-      for (let index = 0; index < channels.length; index++) {
-        let channel = channels[index];
-        if (!channel) {
-          continue;
-        }
-        debug("Attempting to Close Channel # : " + channel);
-
-        this._getProvider().iccCloseChannel(clientId, channel, {
-          notifyCloseChannelSuccess: function() {
-            debug("notifyCloseChannelSuccess # : " + channel);
-            if (callback && (++cbCnt === channels.length)) {
-              callback({ error: SE.ERROR_NONE });
-            }
-          },
-
-          notifyError: function(reason) {
-            debug("Failed to close the channel #  : " + channel +
-                  ", Rejected with Reason : " + reason);
-            if (callback && (++cbCnt === channels.length)) {
-              callback({ error: SE.ERROR_BADSTATE, reason: reason });
-            }
-          }
-        });
-      }
-    },
-
-    setChannelToClassByte(cla, channel) {
-      if (channel < 4) {
-        // b7 = 0 indicates the first interindustry class byte coding
-        cla = (((cla & 0x9C) & 0xFF) |  channel);
-      } else if (channel < 20) {
-        // b7 = 1 indicates the further interindustry class byte coding
-        cla = (((cla & 0xB0) & 0xFF) | 0x40 | (channel - 4));
-      } else {
-        debug("Channel number must be within [0..19]");
-        return SE.ERROR_GENERIC;
-      }
-      return cla;
-    },
-
-    _doGetOpenResponse: function(clientId, channel, length, callback) {
-      let openResponseCommand = {
-        cla: channel & 0xFF,
-        ins: SE.INS_GET_RESPONSE,
-        p1: 0x00,
-        p2: 0x00,
-        p3: length, // request all available response bytes
-        data: null
-      };
-
-      this.doExchangeAPDU(clientId, openResponseCommand, {
-        notifyExchangeAPDUResponse: function(sw1, sw2, response) {
-          debug("GET Response : " + response);
-          if (callback) {
-            callback({ 
-              error: SE.ERROR_NONE,
-              sw1: sw1,
-              sw2: sw2,
-              response: response 
-            });
-          }
-        },
-
-        notifyError: function(reason) {
-          debug("Failed to get open response: " + 
-                ", Rejected with Reason : " + reason);
-          if (callback) {
-            callback({ error: SE.ERROR_INVALIDAPPLICATION, reason: reason });
-          }
-        }
-      });
-    },
-
-    // @todo remove self, use arrow functions
-    _doIccExchangeAPDU: function(clientId, channel, cla, ins, p1, p2,
-                                 p3, data, appendResponse, callback) {
-      let self = this;
-
-      this._getProvider().iccExchangeAPDU(clientId, channel, (cla & 0xFC), ins,
-                                          p1, p2, p3, data, {
-        notifyExchangeAPDUResponse: function(sw1, sw2, response) {
-
-          debug("sw1 : " + sw1 + ", sw2 : " + sw2 + ", response : " + response);
-
-          // Copy the response
-          response = (response && response.length > 0) ?
-                      response + appendResponse : appendResponse;
-
-          // According to ETSI TS 102 221 , See section 7.2.2.3.1:
-          // Enforce 'Procedure bytes' checks before notifying the callback. 
-          // Note that 'Procedure bytes'are special cases.
-
-          // There is no need to handle '0x60' procedure byte as it implies
-          // no-action from SE stack perspective. This procedure byte is not
-          // notified to application layer (?).
-          if (sw1 === 0x6C) {
-            // Use the previous command header with length as second procedure
-            // byte (SW2) as received and repeat the procedure. i,e; 
-            // '_doIccExchangeAPDU(...)'
-            debug("Enforce '0x6C' Procedure with sw2 : " + sw2);
-
-            // Recursive! and Pass empty response '' as args, since '0x6C'
-            // procedure does not have to deal with appended responses.
-            self._doIccExchangeAPDU(clientId, channel,
-                                    cla, ins, p1, p2, sw2, data, "", callback);
-          } else if (sw1 === 0x61) {
-            debug("Enforce '0x61' Procedure with sw2 : " + sw2);
-            // Since the terminal waited for a second procedure byte and
-            // received it (sw2), send a GET RESPONSE command header to the UICC
-            // with a maximum length of 'XX', where 'XX' is the value of the 
-            // second procedure byte (SW2).
-
-            // Recursive, with GET RESPONSE bytes and '0x61' procedure IS 
-            // interested in appended responses.
-            self._doIccExchangeAPDU(clientId, channel, (channel & 0xFF),
-              SE.INS_GET_RESPONSE, 0x00, 0x00, sw2, null, response, callback);
-          } else if (callback) {
-            callback.notifyExchangeAPDUResponse(sw1, sw2, response);
-          }
-        },
-
-        notifyError: function(reason) {
-          debug("Failed to trasmit C-APDU over the channel #  : " + channel +
-                ", Rejected with Reason : " + reason);
-          if (callback) {
-            callback.notifyError(reason);
-          }
-        }
-      });
-    },
-
-    _getChannelNumber: function(cla) {
-      // As per GlobalPlatform Card Specification v2.2, check the 7th bit
-      let classByteCoding = (cla & 0x40);
-      if (classByteCoding === 0x00) {
-        // If 7 th bit is not set, then channel number is encoded in the 2 
-        // rightmost bits Refer to section 11.1.4.1. Possible logical channel 
-        // are: (00: 0, 01 : 1, 10 : 2, 11 : 3)
-        return cla & 0x03;
-      } else {
-        // If the 7th bit is set, channel number is encoded in the 4 rightmost
-        // bits, refer to section 11.1.4.2. Note that Supplementary Logical
-        // Channels start from 4 to 19. So add 4!
-        return (cla & 0x0F) + 4;
-      }
-    },
-
-    _checkPresence: function _checkPresence() {
-      if (!this._isPresent) {
-        throw new Error(SE.ERROR_BADSTATE + 
-                        ",UICC Secure Element is not present!");
-      }
-    },
-
-    _updatePresenceState: function() {
-      // Consider following Card states as not quite ready for performing
-      // IccChannel* related commands
-      let notReadyStates = [
-        "unknown",
-        "illegal",
-        "personalizationInProgress",
-        "permanentBlocked",
-      ];
-      let cardState = this._iccProvider.getCardState(PREFERRED_UICC_CLIENTID);
-      this._isPresent = cardState !== null &&
-                        notReadyStates.indexOf(cardState) == -1;
-    },
-
-    // @todo remove, use XPCOMUtils.defineLazyServiceGetter instead
-    _getProvider: function() {
-      // This check ensures that by calling this internal helper does not 
-      // create a new instance of 'nsIIccProvider' for everytime.
-      if (!this._iccProvider) {
-        this._iccProvider = Cc["@mozilla.org/ril/content-helper;1"]
-                            .createInstance(Ci.nsIIccProvider);
-      }
-      return this._iccProvider;
-    }
-  };
-});
-
-/**
  * 'SecureElementManager' is the main object that interfaces with
  * child process / content. It is also the 'message manager' of the module.
  * It interacts with other objects such as 'gMap' & 'Connector instances
@@ -847,9 +425,6 @@ XPCOMUtils.defineLazyGetter(this, "UiccConnector", function() {
  */
 function SecureElementManager() {
   this._registerMessageListeners();
-  this.connectorFactory = new SEConnectorFactory();
-  // This is needed for UiccConnector to start listening on uicc state changes
-  this.connectorFactory.getConnector(SE.TYPE_UICC).start();
 
   // Initialize handlers array
   this.handlers["SE:OpenChannel"] = this.handleOpenChannel;
@@ -862,28 +437,21 @@ function SecureElementManager() {
 }
 
 SecureElementManager.prototype = {
-  classID: SECUREELEMENTMANAGER_CID,
-
-  classInfo: XPCOMUtils.generateCI({
-    classID: SECUREELEMENTMANAGER_CID,
-    contractID: SECUREELEMENTMANAGER_CONTRACTID,
-    classDescription: "SecureElementManager",
-    interfaces: [Ci.nsISecureElementConnector,
-                 Ci.nsIMessageListener,
-                 Ci.nsIObserver]
-  }),
-
   QueryInterface: XPCOMUtils.generateQI([
-    Ci.nsISecureElementConnector]),
-
-  connectorFactory: null,
+    Ci.nsIMessageListener,
+    Ci.nsIObserver]),
+  classID: SECUREELEMENTMANAGER_CID,
+  classInfo: XPCOMUtils.generateCI({
+    classID:          SECUREELEMENTMANAGER_CID,
+    classDescription: "SecureElementManager",
+    interfaces:       [Ci.nsIMessageListener,
+                       Ci.nsIObserver]
+  }),
 
   handlers: [],
 
   _shutdown: function() {
     this.secureelement = null;
-    this.connectorFactory.getConnector(SE.TYPE_UICC).stop();
-    this.connectorFactory = null;
     Services.obs.removeObserver(this, NS_XPCOM_SHUTDOWN_OBSERVER_ID);
     this._unregisterMessageListeners();
   },
@@ -964,31 +532,63 @@ SecureElementManager.prototype = {
     return readerTypes;
   },
 
-  // @todo switch for to forEach
-  _closeAll: function(type, channels, callback) {
-    let connector = this.connectorFactory.getConnector(type);
-    try {
-      connector.doCloseAll(PREFERRED_UICC_CLIENTID, channels, function(result) {
-        // Remove all the channel entries from the map, since these channels
-        // have been successfully closed
-        for (let i = 0; i < channels.length; i++) {
-          gMap.removeChannel(channels[i], type);
-        }
-        if (callback) {
-          callback(result);
-        }
-      });
-    } catch (error) {
-      debug("Exception thrown while 'doCloseAll' "+ error);
-      if (callback) {
-        callback({ error: error });
-      }
+  _setChannelToClassByte(cla, channel) {
+    if (channel < 4) {
+      // b7 = 0 indicates the first interindustry class byte coding
+      cla = (((cla & 0x9C) & 0xFF) |  channel);
+    } else if (channel < 20) {
+      // b7 = 1 indicates the further interindustry class byte coding
+      cla = (((cla & 0xB0) & 0xFF) | 0x40 | (channel - 4));
+    } else {
+      debug("Channel number must be within [0..19]");
+      return SE.ERROR_GENERIC;
     }
+    return cla;
   },
 
-  _closeAllChannelsByAppId: function(data, callback) {
-    return this._closeAll(data.type,
-      gMap.getAllChannelsByAppIdType(data.appId), callback);
+  _closeAllChannelsByAppIdAndType: function(appId, type, callback) {
+    return this.closeAll(type, gMap.getAllChannelsByAppIdType(appId), callback);
+  },
+
+  // Closes all the channels for a given type
+  // @todo replace for with forEach
+  // @todo notifyChannelSuccess, notifyError should be defined
+  // outside the loop
+  closeAll: function(type, channels, callback) {
+    if (channels.length === 0) {
+      return callback ? callback({ error: SE.ERROR_BADSTATE,
+			reason: "No Active Channels to be closed!" }) : null;
+    }
+
+    let connector = getConnector(type);
+    let cbCnt = 0;
+    for (let index = 0; index < channels.length; index++) {
+      let channel = channels[index];
+      if (!channel) {
+	continue;
+      }
+      debug("Attempting to Close Channel # : " + channel);
+
+      connector.closeChannel(PREFERRED_UICC_CLIENTID, channel, {
+	notifyCloseChannelSuccess: function() {
+	  debug("notifyCloseChannelSuccess # : " + channel);
+          // Remove the channel entry from the map, since this channel
+          // has been successfully closed
+          gMap.removeChannel(channel, type);
+	  if (callback && (++cbCnt === channels.length)) {
+	    callback({ error: SE.ERROR_NONE });
+	  }
+	},
+
+	notifyError: function(reason) {
+	  debug("Failed to close the channel #  : " + channel +
+		", Rejected with Reason : " + reason);
+	  if (callback && (++cbCnt === channels.length)) {
+	    callback({ error: SE.ERROR_BADSTATE, reason: reason });
+	  }
+	}
+      });
+    }
   },
 
   // Following functions are handlers for requests from content
@@ -1006,39 +606,31 @@ SecureElementManager.prototype = {
     // TODO: Bug 1118098  - Integrate with ACE module
 
     // Sanity passed! Create Connector obj based on the 'type'
-    let connector = this.connectorFactory.getConnector(msg.type);
-    try {
-      connector.doOpenChannel(PREFERRED_UICC_CLIENTID,
-        SEUtils.byteArrayToHexString(msg.aid), {
-        notifyOpenChannelSuccess: function(channel, openResponse) {
-          // Add the new 'channel' to the map upon success
-          let channelToken = gMap.addChannel(channel, msg);
-          if (callback) {
-            callback({ 
-              error: SE.ERROR_NONE,
-              channelToken: channelToken,
-              isBasicChannel: (channel === SE.BASIC_CHANNEL),
-              openResponse: SEUtils.hexStringToByteArray(openResponse) 
-            });
-          }
-        },
-
-        notifyError: function(reason) {
-          debug("Failed to open the channel to AID : " +
-                 SEUtils.byteArrayToHexString(msg.aid) +
-                 ", Rejected with Reason : " + reason);
-          if (callback) {
-            callback({ error: SE.ERROR_IO, reason: reason, response: [] });
-          }
+    let connector = getConnector(msg.type);
+    connector.openChannel(PREFERRED_UICC_CLIENTID,
+      SEUtils.byteArrayToHexString(msg.aid), {
+      notifyOpenChannelSuccess: function(channel, openResponse) {
+        // Add the new 'channel' to the map upon success
+        let channelToken = gMap.addChannel(channel, msg);
+        if (callback) {
+          callback({
+            error: SE.ERROR_NONE,
+            channelToken: channelToken,
+            isBasicChannel: (channel === SE.BASIC_CHANNEL),
+            openResponse: SEUtils.hexStringToByteArray(openResponse)
+          });
         }
-      });
+      },
 
-    } catch (error) {
-      debug("Exception thrown while 'doOpenChannel' "+ error);
-      if (callback) {
-        callback({ error: error });
+      notifyError: function(reason) {
+        debug("Failed to open the channel to AID : " +
+               SEUtils.byteArrayToHexString(msg.aid) +
+               ", Rejected with Reason : " + reason);
+        if (callback) {
+          callback({ error: SE.ERROR_IO, reason: reason, response: [] });
+        }
       }
-    }
+    });
   },
 
   handleTransmit: function(msg, callback) {
@@ -1053,34 +645,29 @@ SecureElementManager.prototype = {
 
     // TODO: Bug 1118098  - Integrate with ACE module
 
-    let connector = this.connectorFactory.getConnector(msg.type);
-    // Set the channel to CLA before calling connector's doExchangeAPDU.
+    // Set the channel to CLA before calling connector's exchangeAPDU.
     // See GP Spec, 11.1.4 Class Byte Coding
     let channel = gMap.getChannel(msg);
-    // Use connector to set the class byte
-    msg.apdu.cla = connector.setChannelToClassByte(msg.apdu.cla, channel);
-    try {
-      connector.doExchangeAPDU(PREFERRED_UICC_CLIENTID, msg.apdu, {
-        notifyExchangeAPDUResponse: function(sw1, sw2, response) {
-          if (callback) {
-            callback({ error: SE.ERROR_NONE, sw1: sw1, sw2: sw2,
-              response: SEUtils.hexStringToByteArray(response) });
-          }
-        },
-
-        notifyError: function(reason) {
-          debug("Transmit failed, rejected with Reason : " + reason);
-          if (callback) {
-            callback({ error: SE.ERROR_INVALIDAPPLICATION, reason: reason });
-          }
+    msg.apdu.cla = this._setChannelToClassByte(msg.apdu.cla, channel);
+    let connector = getConnector(msg.type);
+    connector.exchangeAPDU(PREFERRED_UICC_CLIENTID, msg.apdu.cla,
+                           msg.apdu.ins, msg.apdu.p1, msg.apdu.p2,
+                           SEUtils.byteArrayToHexString(msg.apdu.data),
+                           msg.apdu.le, {
+      notifyExchangeAPDUResponse: function(sw1, sw2, response) {
+        if (callback) {
+          callback({ error: SE.ERROR_NONE, sw1: sw1, sw2: sw2,
+            response: SEUtils.hexStringToByteArray(response) });
         }
-      });
-    } catch (error) {
-      debug("Exception thrown while 'doExchangeAPDU' "+ error);
-      if (callback) {
-        callback({ error: error });
+      },
+
+      notifyError: function(reason) {
+        debug("Transmit failed, rejected with Reason : " + reason);
+        if (callback) {
+          callback({ error: SE.ERROR_INVALIDAPPLICATION, reason: reason });
+        }
       }
-    }
+    });
   },
 
   handleCloseChannel: function(msg, callback) {
@@ -1096,9 +683,9 @@ SecureElementManager.prototype = {
     // TODO: Bug 1118098  - Integrate with ACE module
 
     // Sanity passed! Create Connector obj based on the 'type'
-    let connector = this.connectorFactory.getConnector(msg.type);
+    let connector = getConnector(msg.type);
     let channel = gMap.getChannel(msg);
-    connector.doCloseChannel(PREFERRED_UICC_CLIENTID, channel, {
+    connector.closeChannel(PREFERRED_UICC_CLIENTID, channel, {
       notifyCloseChannelSuccess: function() {
         gMap.removeChannel(channel, msg.type);
         if (callback) {
@@ -1118,14 +705,14 @@ SecureElementManager.prototype = {
 
   // Closes all the channels opened by a session
   handleCloseAllChannelsBySessionToken: function(data, callback) {
-    return this._closeAll(data.type,
+    return this.closeAll(data.type,
       gMap.getAllChannelsBySessionToken(data.sessionToken, data.appId),
       callback);
   },
 
   // Closes all the channels opened by the reader
   handleCloseAllChannelsByReader: function(data, callback) {
-    return this._closeAll(data.type,
+    return this.closeAll(data.type,
       gMap.getAllChannelsByAppIdType(data.appId, data.type), callback);
   },
 
@@ -1139,11 +726,7 @@ SecureElementManager.prototype = {
     if (!appInfo) {
       return;
     }
-    for (let i = 0; i < appInfo.readerTypes.length; i++) {
-      // No need to pass the callback
-      this._closeAllChannelsByAppId({appId: appInfo.appId,
-        type: appInfo.readerTypes[i]}, null);
-    }
+    this._closeAllChannelsByAppIdAndType(appInfo.appId, SE.TYPE_UICC, null);
     gMap.unregisterSecureElementTarget(target);
   },
 
@@ -1167,11 +750,7 @@ SecureElementManager.prototype = {
     let options = {
       metadata: msg.data
     };
-    // Perform two checks before allowing opening of session
-    // 1. Check if the type is already a supported one
-    //          AND
-    // 2. Check if the 'session type' that content is attempting to connect to
-    // is in a 'present state' by queriying the appropriate 'connector obj'.
+    // Check if the type is already a supported one
     if (gMap.isSupportedReaderType(msg.data)) {
       promiseStatus = "Resolved";
       // Add the result
@@ -1188,38 +767,6 @@ SecureElementManager.prototype = {
       let options = { result: result, metadata: msg.data };
       msg.target.sendAsyncMessage(msg.name + promiseStatus, options);
     });
-  },
-
-  /**
-   * nsISecureElementConnector interface methods for external modules such as ACE
-   */
-  openChannel: function(seType, clientId, aid, callback) {
-    let type = (Ci.nsISecureElementConnector.SE_TYPE_UICC === seType) ? "uicc" : null;
-    let connector = this.connectorFactory.getConnector(type);
-    connector.doOpenChannel(clientId, aid, callback);
-  },
-
-  exchangeAPDU:
-  function(seType, clientId, channel, cla, ins, p1, p2, data, le,callback) {
-    let type = (Ci.nsISecureElementConnector.SE_TYPE_UICC === seType) ? "uicc" : null;
-    let connector = this.connectorFactory.getConnector(type);
-    // Mask the class byte with channel as per GP Spec, 11.1.4 Class Byte Coding
-    let classByte = connector.setChannelToClassByte(cla, channel);
-    let commandAPDU = {
-      cla: classByte,
-      ins: ins,
-      p1: p1,
-      p2: p2,
-      data: (data ? SEUtils.hexStringToByteArray(data) : null),
-      le: le
-    };
-    connector.doExchangeAPDU(clientId, commandAPDU, callback);
-  },
-
-  closeChannel: function(seType, clientId, channel, callback) {
-    let type = (Ci.nsISecureElementConnector.SE_TYPE_UICC === seType) ? "uicc" : null;
-    let connector = this.connectorFactory.getConnector(type);
-    connector.doCloseChannel(clientId, channel, callback);
   },
 
   /**
