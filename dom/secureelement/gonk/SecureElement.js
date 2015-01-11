@@ -18,7 +18,7 @@
 "use strict";
 
 /* globals dump, Components, XPCOMUtils, SE, Services, UiccConnector,
-   SEUtils, ppmm, gMap, libcutils */
+   SEUtils, ppmm, gMap, libcutils, UUIDGenerator */
 
 const {classes: Cc, interfaces: Ci, utils: Cu } = Components;
 
@@ -75,7 +75,10 @@ XPCOMUtils.defineLazyServiceGetter(this, "ppmm",
                                    "@mozilla.org/parentprocessmessagemanager;1",
                                    "nsIMessageBroadcaster");
 
-// @todo i think we should remove this
+XPCOMUtils.defineLazyServiceGetter(this, "UUIDGenerator",
+                                    "@mozilla.org/uuid-generator;1",
+                                    "nsIUUIDGenerator");
+
 function SEConnectorFactory() {}
 
 /**
@@ -164,8 +167,6 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
      ]} */
     appInfoMap: {},
 
-    uuidGenerator: null,
-
     // Register the new SecureElement target.
     registerSecureElementTarget: function(message, readers) {
       let appInfoMap = this.appInfoMap;
@@ -252,7 +253,7 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
       let type = msg.type;
       // Generate a unique sessionToken and send it to content. All subsequent
       // operations may happen on this session.
-      let sessionToken = this._getUUIDGenerator().generateUUID().toString();
+      let sessionToken = UUIDGenerator.generateUUID().toString();
 
       let appInfo = this.appInfoMap[appId];
       if (!appInfo) {
@@ -287,10 +288,12 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
 
       // appId needs to be present
       if (!appId || !this.appInfoMap[appId]) {
+        debug("appId not valid.");
         return false;
       }
 
       if (sToken && !this.appInfoMap[appId].sessions[sToken]) {
+        debug("session token not valid.");
         return false;
       }
 
@@ -316,78 +319,64 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
 
     // Add channel to a given sessionToken. Upon successfully adding the entry
     // this function will return the 'token'
-    // @todo use isValidSession instead of manual validation 
     addChannel: function(channel, msg) {
-      let appId = msg.appId;
-      // Generate a unique 'token' (alias) instead of sending 'channel number'.
-      // to the content. Any further 'Channel' related operations by the content
-      // shall operate using this token.
-      let token = this._getUUIDGenerator().generateUUID().toString();
-
-      let appInfo = this.appInfoMap[appId];
-      if (!appInfo) {
-        debug("Unable to add channel: " + appId);
-        return null;
-      }
-      let session = appInfo.sessions[msg.sessionToken];
-      if (!session) {
-        debug("Unable to add channel: Invalid session, " + msg.sessionToken +
-              " appId:" + appId);
+      if (!this.isValidSession(msg)) {
+        debug("session validation failed, not adding channel");
         return null;
       }
 
-      // Add if 'type' matches
-      if (session.type !== msg.type) {
+      let { appId: appId, sessionToken: sToken, type: type } = msg;
+      let session = this.appInfoMap[appId].sessions[sToken];
+
+      if (session.type !== type) {
         debug("Unable to add channel: Type Mismatch - " + session.type +
-              " Vs " + msg.type + " (or) Channel already added:" +
-              channel + " " + session.channels[token].channel);
+              " Vs " + type + " (or) Channel already added:" + channel);
         return null;
       }
-      // Add the entry
+
+      let token = UUIDGenerator.generateUUID().toString();
       session.channels[token] = { aid: msg.aid, channel:  channel };
       return token;
     },
 
     // Remove the given ''channel' entry based on type.
     // Note that ''channel' will be unique per type
-    // @todo refactoring needed
     removeChannel: function(channel, type) {
       let targets = this.appInfoMap;
       Object.keys(targets).forEach((appId) => {
         let sessions = targets[appId].sessions;
-        Object.keys(sessions).forEach((sessionToken) => {
-          if (sessions[sessionToken].type === type) {
-            let channels = sessions[sessionToken].channels;
-            Object.keys(channels).forEach((token) => {
-              if (channels[token].channel ===  channel) {
-                // We have found the match
-                debug("Deleting channel with token : " + token +
-                      ",  channel : " +  channel);
-                delete channels[token];
-              }
-            }); // End of Channels keys
+        let sTokens = Object.keys(sessions)
+                            .filter(t => sessions[t].type === type);
+
+        sTokens.forEach((sToken) => {
+          let channels = sessions[sToken].channels;
+          let chToken = Object.keys(channels)
+                              .find(t => channels[t].channel === channel);
+
+          if (chToken) {
+            debug("Deleting channel: " + channel + " of type: " + type + 
+                  ", token: " + chToken);
+            delete channel[chToken];
+          } else {
+            debug("Channel: " + channel + " of type: " + type + " not found");
           }
-        }); // End of Sessions keys
-      }); // End of AppId keys
+        });
+      });
     },
 
     // Validates the given 'channelToken' by checking if it is a registered one
     // for the given (appId, sessionToken, channelToken)
-    // @todo reuse isValidSession here
     isValidChannelToken: function(data) {
+      if (!this.isValidSession(data)) {
+        debug("session not valid, channel token validation failed");
+        return false;
+      }
+
       let { appId: appId, sessionToken: sToken, channelToken: chToken } = data;
-
-      // appId needs to be present
-      if (!appId || !this.appInfoMap[appId]) {
-        return false;
-      }
-
-      if (sToken && !this.appInfoMap[appId].sessions[sToken]) {
-        return false;
-      }
 
       if (chToken &&
           !this.appInfoMap[appId].sessions[sToken].channels[chToken]) {
+        debug("channel token not valid");
         return false;
       }
 
@@ -407,19 +396,9 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
 
     // Returns an array of channels like [2,3,4] from session.channels object. 
     // If no 'channel entry' exists in 'channels it returns an empty array '[]'
-    // @todo consider removing
     _getChannels: function(channels) {
       channels = channels || {};
       return Object.keys(channels).map(cKey => channels[cKey].channel);
-    },
-
-    // @todo remove, use XPCOMUtils.defineLazyServiceGetter instead
-    _getUUIDGenerator: function() {
-      if (!this.uuidGenerator) {
-        this.uuidGenerator = Cc["@mozilla.org/uuid-generator;1"]
-                             .createInstance(Ci.nsIUUIDGenerator);
-      }
-      return this.uuidGenerator;
     },
   };
 });
@@ -435,7 +414,6 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
  * doExchangeAPDU(clientId, command, callback)
  * doCloseChannel(clientId, channel, callback)
  * doCloseAll(clientId, [channels], callback)
- * @todo move to separate file with IccListnerCtx
  */
 XPCOMUtils.defineLazyGetter(this, "UiccConnector", function() {
   return {
@@ -483,7 +461,6 @@ XPCOMUtils.defineLazyGetter(this, "UiccConnector", function() {
      *        The result will be notified either through
      *        'notifyOpenChannelSuccess(channel, openResponse)' (or)
      *        'notifyError(error)'.
-     * @todo remove self, use arrow functions
      */
     doOpenChannel: function(clientId, aid, callback) {
       this._checkPresence(clientId);
@@ -510,17 +487,16 @@ XPCOMUtils.defineLazyGetter(this, "UiccConnector", function() {
       //                     crash it can read the persistent storage to check
       //                     if there are any held resources. (opened channels)
       //                     and close them.
-      let self = this;
       this._getProvider().iccOpenChannel(clientId, aid, {
-        notifyOpenChannelSuccess: function(channel) {
-          self._doGetOpenResponse(clientId, channel, 0x00, function(result) {
+        notifyOpenChannelSuccess: (channel) => {
+          this._doGetOpenResponse(clientId, channel, 0x00, function(result) {
             if (callback) {
               callback.notifyOpenChannelSuccess(channel, result.response);
             }
           });
         },
 
-        notifyError: function(reason) {
+        notifyError: (reason) => {
           debug("Failed to open the channel to AID : " + aid +
                 ", Rejected with Reason : " + reason);
           if (callback) {
@@ -643,9 +619,6 @@ XPCOMUtils.defineLazyGetter(this, "UiccConnector", function() {
     },
 
     // Closes all the channels on given clientId.
-    // @todo replace for with forEach
-    // @todo notifyChannelSuccess, notifyError should be defined
-    // outside the loop
     doCloseAll: function(clientId, channels, callback) {
       this._checkPresence(clientId);
 
@@ -655,11 +628,7 @@ XPCOMUtils.defineLazyGetter(this, "UiccConnector", function() {
       }
 
       let cbCnt = 0;
-      for (let index = 0; index < channels.length; index++) {
-        let channel = channels[index];
-        if (!channel) {
-          continue;
-        }
+      channels.forEach((channel) => {
         debug("Attempting to Close Channel # : " + channel);
 
         this._getProvider().iccCloseChannel(clientId, channel, {
@@ -678,7 +647,7 @@ XPCOMUtils.defineLazyGetter(this, "UiccConnector", function() {
             }
           }
         });
-      }
+      });
     },
 
     setChannelToClassByte(cla, channel) {
@@ -728,14 +697,11 @@ XPCOMUtils.defineLazyGetter(this, "UiccConnector", function() {
       });
     },
 
-    // @todo remove self, use arrow functions
     _doIccExchangeAPDU: function(clientId, channel, cla, ins, p1, p2,
                                  p3, data, appendResponse, callback) {
-      let self = this;
-
       this._getProvider().iccExchangeAPDU(clientId, channel, (cla & 0xFC), ins,
                                           p1, p2, p3, data, {
-        notifyExchangeAPDUResponse: function(sw1, sw2, response) {
+        notifyExchangeAPDUResponse: (sw1, sw2, response) => {
 
           debug("sw1 : " + sw1 + ", sw2 : " + sw2 + ", response : " + response);
 
@@ -758,7 +724,7 @@ XPCOMUtils.defineLazyGetter(this, "UiccConnector", function() {
 
             // Recursive! and Pass empty response '' as args, since '0x6C'
             // procedure does not have to deal with appended responses.
-            self._doIccExchangeAPDU(clientId, channel,
+            this._doIccExchangeAPDU(clientId, channel,
                                     cla, ins, p1, p2, sw2, data, "", callback);
           } else if (sw1 === 0x61) {
             debug("Enforce '0x61' Procedure with sw2 : " + sw2);
@@ -769,14 +735,14 @@ XPCOMUtils.defineLazyGetter(this, "UiccConnector", function() {
 
             // Recursive, with GET RESPONSE bytes and '0x61' procedure IS 
             // interested in appended responses.
-            self._doIccExchangeAPDU(clientId, channel, (channel & 0xFF),
+            this._doIccExchangeAPDU(clientId, channel, (channel & 0xFF),
               SE.INS_GET_RESPONSE, 0x00, 0x00, sw2, null, response, callback);
           } else if (callback) {
             callback.notifyExchangeAPDUResponse(sw1, sw2, response);
           }
         },
 
-        notifyError: function(reason) {
+        notifyError: (reason) => {
           debug("Failed to trasmit C-APDU over the channel #  : " + channel +
                 ", Rejected with Reason : " + reason);
           if (callback) {
@@ -964,16 +930,13 @@ SecureElementManager.prototype = {
     return readerTypes;
   },
 
-  // @todo switch for to forEach
   _closeAll: function(type, channels, callback) {
     let connector = this.connectorFactory.getConnector(type);
     try {
-      connector.doCloseAll(PREFERRED_UICC_CLIENTID, channels, function(result) {
+      connector.doCloseAll(PREFERRED_UICC_CLIENTID, channels, (result) => {
         // Remove all the channel entries from the map, since these channels
         // have been successfully closed
-        for (let i = 0; i < channels.length; i++) {
-          gMap.removeChannel(channels[i], type);
-        }
+        channels.forEach(ch => gMap.removeChannel(ch, type));
         if (callback) {
           callback(result);
         }
@@ -1133,17 +1096,14 @@ SecureElementManager.prototype = {
   //    (appInfo.appId & appInfo.readerTypes)
   // 2. Iterate over all registered readerTypes and close all channels by type.
   // 3. Finally unregister the target from 'gMap' by deleting its entry.
-  // @todo for -> forEach
   handleChildProcessShutdown: function(target) {
     let appInfo = gMap.getAppInfoByMsgTarget(target);
     if (!appInfo) {
       return;
     }
-    for (let i = 0; i < appInfo.readerTypes.length; i++) {
-      // No need to pass the callback
-      this._closeAllChannelsByAppId({appId: appInfo.appId,
-        type: appInfo.readerTypes[i]}, null);
-    }
+    appInfo.readerTypes.forEach((t) => {
+      this._closeAllChannelsByAppId({appId: appInfo.appId, type: t}, null);
+    });
     gMap.unregisterSecureElementTarget(target);
   },
 
