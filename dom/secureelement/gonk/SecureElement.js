@@ -17,8 +17,8 @@
 
 "use strict";
 
-/* globals dump, Components, XPCOMUtils, SE, Services,
-   SEUtils, ppmm, gMap, libcutils */
+/* globals dump, Components, XPCOMUtils, SE, Services, UiccConnector,
+   SEUtils, ppmm, gMap, libcutils, UUIDGenerator */
 
 const {classes: Cc, interfaces: Ci, utils: Cu } = Components;
 
@@ -31,9 +31,6 @@ XPCOMUtils.defineLazyGetter(this, "SE", function() {
   Cu.import("resource://gre/modules/se_consts.js", obj);
   return obj;
 });
-
-XPCOMUtils.defineLazyModuleGetter(this, "SEUtils",
-                                  "resource://gre/modules/SEUtils.jsm");
 
 // set to true in se_consts.js to see debug messages
 let DEBUG = SE.DEBUG_SE;
@@ -63,6 +60,13 @@ XPCOMUtils.defineLazyServiceGetter(this, "ppmm",
 XPCOMUtils.defineLazyServiceGetter(this, "UiccConnector",
                                    "@mozilla.org/secureelement/connector;1",
                                    "nsISecureElementConnector");
+
+XPCOMUtils.defineLazyServiceGetter(this, "UUIDGenerator",
+                                   "@mozilla.org/uuid-generator;1",
+                                   "nsIUUIDGenerator");
+
+XPCOMUtils.defineLazyModuleGetter(this, "SEUtils",
+                                  "resource://gre/modules/SEUtils.jsm");
 
 // TODO: Bug 1118099  - Add multi-sim support.
 // In the Multi-sim, there is more than one client.
@@ -118,8 +122,6 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
         ...
     ]} */
     appInfoMap: {},
-
-    uuidGenerator: null,
 
     // Register the new SecureElement target.
     registerSecureElementTarget: function(message, readers) {
@@ -202,15 +204,15 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
       // Generate a unique 'token' (alias) instead of sending 'channel number'.
       // to the content. Any further 'Channel' related operations by the content
       // shall operate using this token.
-      let token = this._getUUIDGenerator().generateUUID().toString();
+      let token = UUIDGenerator.generateUUID().toString();
       // Add the entry
       appInfo.channels[token] = { seType: msg.type, aid: msg.aid, channel:  channel };
       return token;
     },
 
     // Remove the given channel entry based on type.
-    // Note that 'channel' will be unique per type
-    // @todo refactoring needed
+    // Note that channel will be unique per type
+    // @todo refactor
     removeChannel: function(channel, type) {
       let targets = this.appInfoMap;
       Object.keys(targets).forEach((appId) => {
@@ -257,19 +259,9 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
 
     // Returns an array of channels like [2,3,4] from appInfo.channels object.
     // If no 'channel entry' exists in 'channels it returns an empty array '[]'
-    // @todo consider removing
     _getChannels: function(channels) {
       channels = channels || {};
       return Object.keys(channels).map(cKey => channels[cKey].channel);
-    },
-
-    // @todo remove, use XPCOMUtils.defineLazyServiceGetter instead
-    _getUUIDGenerator: function() {
-      if (!this.uuidGenerator) {
-        this.uuidGenerator = Cc["@mozilla.org/uuid-generator;1"]
-                             .createInstance(Ci.nsIUUIDGenerator);
-      }
-      return this.uuidGenerator;
     },
   };
 });
@@ -347,44 +339,40 @@ SecureElementManager.prototype = {
   },
 
   // Closes all the channels for a given type
-  // @todo replace for with forEach
-  // @todo notifyChannelSuccess, notifyError should be defined
-  // outside the loop
   closeAll: function(type, channels, callback) {
     if (channels.length === 0) {
-      return callback ? callback({ error: SE.ERROR_BADSTATE,
-			reason: "No Active Channels to be closed!" }) : null;
+      return callback ? callback({
+                          error: SE.ERROR_BADSTATE,
+                          reason: "No Active Channels to be closed!"
+                        })
+                      : null;
     }
 
     let connector = getConnector(type);
     let cbCnt = 0;
-    for (let index = 0; index < channels.length; index++) {
-      let channel = channels[index];
-      if (!channel) {
-	continue;
-      }
+    channels.forEach((channel) => {
       debug("Attempting to Close Channel # : " + channel);
 
       connector.closeChannel(PREFERRED_UICC_CLIENTID, channel, {
-	notifyCloseChannelSuccess: function() {
-	  debug("notifyCloseChannelSuccess # : " + channel);
+        notifyCloseChannelSuccess: () => {
+          debug("notifyCloseChannelSuccess # : " + channel);
           // Remove the channel entry from the map, since this channel
           // has been successfully closed
           gMap.removeChannel(channel, type);
-	  if (callback && (++cbCnt === channels.length)) {
-	    callback({ error: SE.ERROR_NONE });
-	  }
-	},
+          if (callback && (++cbCnt === channels.length)) {
+            callback({ error: SE.ERROR_NONE });
+          }
+        },
 
-	notifyError: function(reason) {
-	  debug("Failed to close the channel #  : " + channel +
-		", Rejected with Reason : " + reason);
-	  if (callback && (++cbCnt === channels.length)) {
-	    callback({ error: SE.ERROR_BADSTATE, reason: reason });
-	  }
-	}
+        notifyError: (reason) => {
+          debug("Failed to close the channel #  : " + channel +
+                ", Rejected with Reason : " + reason);
+          if (callback && (++cbCnt === channels.length)) {
+            callback({ error: SE.ERROR_BADSTATE, reason: reason });
+          }
+        }
       });
-    }
+    });
   },
 
   // Following functions are handlers for requests from content
@@ -447,8 +435,10 @@ SecureElementManager.prototype = {
                            msg.apdu.le, {
       notifyExchangeAPDUResponse: function(sw1, sw2, response) {
         if (callback) {
-          callback({ error: SE.ERROR_NONE, sw1: sw1, sw2: sw2,
-            response: SEUtils.hexStringToByteArray(response) });
+          callback({
+            error: SE.ERROR_NONE, sw1: sw1, sw2: sw2,
+            response: SEUtils.hexStringToByteArray(response)
+          });
         }
       },
 
@@ -497,7 +487,6 @@ SecureElementManager.prototype = {
   //    (appInfo.appId & appInfo.readerTypes)
   // 2. Iterate over all registered readerTypes and close all channels by type.
   // 3. Finally unregister the target from 'gMap' by deleting its entry.
-  // @todo for -> forEach
   handleChildProcessShutdown: function(target) {
     let appInfo = gMap.getAppInfoByMsgTarget(target);
     if (!appInfo) {
