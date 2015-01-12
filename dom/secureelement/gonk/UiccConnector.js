@@ -17,23 +17,20 @@
 
 "use strict";
 
-const {classes: Cc, interfaces: Ci, utils: Cu } = Components;
+/* globals Components, XPCOMUtils, SE, dump, libcutils, Services,
+   iccProvider, SEUtils */
+
+const { interfaces: Ci, utils: Cu } = Components;
 
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource://gre/modules/systemlibs.js");
+
 XPCOMUtils.defineLazyGetter(this, "SE", function() {
   let obj = {};
   Cu.import("resource://gre/modules/se_consts.js", obj);
   return obj;
 });
-
-XPCOMUtils.defineLazyModuleGetter(this, "SEUtils",
-                                  "resource://gre/modules/SEUtils.jsm");
-
-XPCOMUtils.defineLazyServiceGetter(this, "iccProvider",
-                                   "@mozilla.org/ril/content-helper;1",
-                                   "nsIIccProvider");
 
 // set to true in se_consts.js to see debug messages
 let DEBUG = SE.DEBUG_CONNECTOR;
@@ -42,6 +39,13 @@ function debug(s) {
     dump("-*- UiccConnector: " + s + "\n");
   }
 }
+
+XPCOMUtils.defineLazyModuleGetter(this, "SEUtils",
+                                  "resource://gre/modules/SEUtils.jsm");
+
+XPCOMUtils.defineLazyServiceGetter(this, "iccProvider",
+                                   "@mozilla.org/ril/content-helper;1",
+                                   "nsIIccProvider");
 
 const UICCCONNECTOR_CONTRACTID =
   "@mozilla.org/secureelement/connector;1";
@@ -59,6 +63,7 @@ const PREFERRED_UICC_CLIENTID =
 function UiccConnector() {
   this._init();
 }
+
 UiccConnector.prototype = {
   QueryInterface: XPCOMUtils.generateQI([Ci.nsISecureElementConnector]),
   classID: UICCCONNECTOR_CID,
@@ -142,77 +147,74 @@ UiccConnector.prototype = {
     this.exchangeAPDU(clientId, channel, (channel & 0xFF), SE.INS_GET_RESPONSE,
                         0x00, 0x00, null, length, {
       notifyExchangeAPDUResponse: function(sw1, sw2, response) {
-	debug("GET Response : " + response);
-	if (callback) {
-	  callback({
-	    error: SE.ERROR_NONE,
-	    sw1: sw1,
-	    sw2: sw2,
-	    response: response
-	  });
-	}
+        debug("GET Response : " + response);
+        if (callback) {
+          callback({
+            error: SE.ERROR_NONE,
+            sw1: sw1,
+            sw2: sw2,
+            response: response
+          });
+        }
       },
 
       notifyError: function(reason) {
-	debug("Failed to get open response: " + 
-	      ", Rejected with Reason : " + reason);
-	if (callback) {
-	  callback({ error: SE.ERROR_INVALIDAPPLICATION, reason: reason });
-	}
+        debug("Failed to get open response: " + 
+              ", Rejected with Reason : " + reason);
+        if (callback) {
+          callback({ error: SE.ERROR_INVALIDAPPLICATION, reason: reason });
+        }
       }
     });
   },
 
-  // @todo remove self, use arrow functions
-  _doIccExchangeAPDU: function(clientId, channel, cla, ins, p1, p2,
-			       p3, data, appendResponse, callback) {
-    let self = this;
+  _doIccExchangeAPDU: function(clientId, channel, cla, ins, p1, p2, p3,
+                               data, appendResponse, callback) {
     iccProvider.iccExchangeAPDU(clientId, channel, (cla & 0xFC), ins,
-					p1, p2, p3, data, {
-      notifyExchangeAPDUResponse: function(sw1, sw2, response) {
+                                p1, p2, p3, data, {
+      notifyExchangeAPDUResponse: (sw1, sw2, response) => {
+        debug("sw1 : " + sw1 + ", sw2 : " + sw2 + ", response : " + response);
 
-	debug("sw1 : " + sw1 + ", sw2 : " + sw2 + ", response : " + response);
-	// According to ETSI TS 102 221 , Section 7.2.2.3.1,
-	// Enforce 'Procedure bytes' checks before notifying the callback. 
-	// Note that 'Procedure bytes'are special cases.
+        // According to ETSI TS 102 221 , Section 7.2.2.3.1,
+        // Enforce 'Procedure bytes' checks before notifying the callback. 
+        // Note that 'Procedure bytes'are special cases.
+        // There is no need to handle '0x60' procedure byte as it implies
+        // no-action from SE stack perspective. This procedure byte is not
+        // notified to application layer (?).
+        if (sw1 === 0x6C) {
+          // Use the previous command header with length as second procedure
+          // byte (SW2) as received and repeat the procedure.
+          debug("Enforce '0x6C' Procedure with sw2 : " + sw2);
 
-	// There is no need to handle '0x60' procedure byte as it implies
-	// no-action from SE stack perspective. This procedure byte is not
-	// notified to application layer (?).
-	if (sw1 === 0x6C) {
-	  // Use the previous command header with length as second procedure
-	  // byte (SW2) as received and repeat the procedure.
-	  debug("Enforce '0x6C' Procedure with sw2 : " + sw2);
+          // Recursive! and Pass empty response '' as args, since '0x6C'
+          // procedure does not have to deal with appended responses.
+          this._doIccExchangeAPDU(clientId, channel, cla, ins, p1, p2,
+                                  sw2, data, "", callback);
+        } else if (sw1 === 0x61) {
+          debug("Enforce '0x61' Procedure with sw2 : " + sw2);
+          // Since the terminal waited for a second procedure byte and
+          // received it (sw2), send a GET RESPONSE command header to the UICC
+          // with a maximum length of 'XX', where 'XX' is the value of the 
+          // second procedure byte (SW2).
 
-	  // Recursive! and Pass empty response '' as args, since '0x6C'
-	  // procedure does not have to deal with appended responses.
-	  self._doIccExchangeAPDU(clientId, channel,
-				  cla, ins, p1, p2, sw2, data, "", callback);
-	} else if (sw1 === 0x61) {
-	  debug("Enforce '0x61' Procedure with sw2 : " + sw2);
-	  // Since the terminal waited for a second procedure byte and
-	  // received it (sw2), send a GET RESPONSE command header to the UICC
-	  // with a maximum length of 'XX', where 'XX' is the value of the 
-	  // second procedure byte (SW2).
-
-	  // Recursive, with GET RESPONSE bytes and '0x61' procedure IS 
-	  // interested in appended responses.
+          // Recursive, with GET RESPONSE bytes and '0x61' procedure IS 
+          // interested in appended responses.
           // Pass appended response and note that p3=sw2.
-	  self._doIccExchangeAPDU(clientId, channel, (channel & 0xFF),
-	    SE.INS_GET_RESPONSE, 0x00, 0x00, sw2, null,
+          this._doIccExchangeAPDU(clientId, channel, (channel & 0xFF),
+            SE.INS_GET_RESPONSE, 0x00, 0x00, sw2, null,
             (response ? response + appendResponse : appendResponse),
             callback);
-	} else if (callback) {
-	  callback.notifyExchangeAPDUResponse(sw1, sw2, response);
-	}
+        } else if (callback) {
+          callback.notifyExchangeAPDUResponse(sw1, sw2, response);
+        }
       },
 
-      notifyError: function(reason) {
-	debug("Failed to trasmit C-APDU over the channel #  : " + channel +
-	      ", Rejected with Reason : " + reason);
-	if (callback) {
-	  callback.notifyError(reason);
-	}
+      notifyError: (reason) => {
+        debug("Failed to trasmit C-APDU over the channel #  : " + channel +
+              ", Rejected with Reason : " + reason);
+        if (callback) {
+          callback.notifyError(reason);
+        }
       }
     });
   },
@@ -223,7 +225,16 @@ UiccConnector.prototype = {
 
   /**
    * Opens a supplementary channel on a given clientId
-   * @todo remove self, use arrow functions
+   *
+   * @param clientId
+   *        ClientId representing a UICC / SIM slot
+   * @param aid
+   *        Application Identifier identifying the applet on the card.
+   * @param callback
+   *        Callback interface that implements 'nsISEChannelCallback'.
+   *        The result will be notified either through
+   *        'notifyOpenChannelSuccess(channel, openResponse)' (or)
+   *        'notifyError(error)'.
    */
   openChannel: function(clientId, aid, callback) {
     this._checkPresence();
@@ -236,22 +247,21 @@ UiccConnector.prototype = {
     //                     crash it can read the persistent storage to check
     //                     if there are any held resources. (opened channels)
     //                     and close them.
-    let self = this;
     iccProvider.iccOpenChannel(clientId, aid, {
-      notifyOpenChannelSuccess: function(channel) {
-	self._doGetOpenResponse(clientId, channel, 0x00, function(result) {
-	  if (callback) {
-	    callback.notifyOpenChannelSuccess(channel, result.response);
-	  }
-	});
+      notifyOpenChannelSuccess: (channel) => {
+        this._doGetOpenResponse(clientId, channel, 0x00, function(result) {
+          if (callback) {
+            callback.notifyOpenChannelSuccess(channel, result.response);
+          }
+        });
       },
 
-      notifyError: function(reason) {
-	debug("Failed to open the channel to AID : " + aid +
-	      ", Rejected with Reason : " + reason);
-	if (callback) {
-	  callback.notifyError(reason);
-	}
+      notifyError: (reason) => {
+        debug("Failed to open the channel to AID : " + aid +
+              ", Rejected with Reason : " + reason);
+        if (callback) {
+          callback.notifyError(reason);
+        }
       }
     });
   },
@@ -277,24 +287,22 @@ UiccConnector.prototype = {
       commandApduData = new Uint8Array(p3);
       let offset = 0;
       while (offset < SE.MAX_APDU_LEN && offset < p3) {
-	commandApduData[offset] = data[offset];
-	offset++;
+        commandApduData[offset] = data[offset];
+        offset++;
       }
     }
     if (commandApduData && appendLe) {
       // Append 'le' value to data
-      let leHexStr = SEUtils.byteArrayToHexString([
-	le & 0xFF, (le >> 8) & 0xFF
-      ]);
+      let leHexStr = 
+        SEUtils.byteArrayToHexString([le & 0xFF, (le >> 8) & 0xFF]);
       commandApduData += leHexStr;
     }
-    let channel = this._getChannelNumber(cla);
-    debug("exchangeAPDU on Channel # " + channel);
-
+    
     // Pass empty response '' as args as we are not interested in appended
     // responses yet!
-    this._doIccExchangeAPDU(clientId, channel, cla, ins,
-			    p1, p2, p3/2, data, "", callback);
+    debug("exchangeAPDU on Channel # " + channel);
+    this._doIccExchangeAPDU(clientId, channel, cla, ins, 
+                            p1, p2, p3/2, data, "", callback);
   },
 
   /**
@@ -305,18 +313,18 @@ UiccConnector.prototype = {
 
     iccProvider.iccCloseChannel(clientId, channel, {
       notifyCloseChannelSuccess: function() {
-	("closeChannel successfully closed the channel # : " + channel);
-	if (callback) {
-	  callback.notifyCloseChannelSuccess();
-	}
+        debug("closeChannel successfully closed the channel # : " + channel);
+        if (callback) {
+          callback.notifyCloseChannelSuccess();
+        }
       },
 
       notifyError: function(reason) {
-	debug("Failed to close the channel #  : " + channel +
-	      ", Rejected with Reason : " + reason);
-	if (callback) {
-	  callback.notifyError(reason);
-	}
+        debug("Failed to close the channel #  : " + channel +
+              ", Rejected with Reason : " + reason);
+        if (callback) {
+          callback.notifyError(reason);
+        }
       }
     });
   },
