@@ -7,8 +7,6 @@
 
 XPIDL_MODULE = 'dom_secureelement'
 
-XPIDL_MODULE = 'dom_secureelement'
-
 if CONFIG['MOZ_SECUREELEMENT']:
     XPIDL_SOURCES += [
         'nsIAccessRulesManager.idl',
