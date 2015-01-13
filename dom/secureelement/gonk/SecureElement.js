@@ -341,20 +341,6 @@ SecureElementManager.prototype = {
     return readerTypes;
   },
 
-  _setChannelToClassByte(cla, channel) {
-    if (channel < 4) {
-      // b7 = 0 indicates the first interindustry class byte coding
-      cla = (((cla & 0x9C) & 0xFF) |  channel);
-    } else if (channel < 20) {
-      // b7 = 1 indicates the further interindustry class byte coding
-      cla = (((cla & 0xB0) & 0xFF) | 0x40 | (channel - 4));
-    } else {
-      debug("Channel number must be within [0..19]");
-      return SE.ERROR_GENERIC;
-    }
-    return cla;
-  },
-
   _closeAllChannelsByAppId: function(appId, type, callback) {
     let allChannels = gMap.getAllChannelsByAppId(appId);
     return this.closeAll(type, allChannels, callback);
@@ -415,8 +401,6 @@ SecureElementManager.prototype = {
     }
 
     // TODO: Bug 1118098  - Integrate with ACE module
-
-    // Sanity passed! Create Connector obj based on the 'type'
     let connector = getConnector(msg.type);
     connector.openChannel(PREFERRED_UICC_CLIENTID,
       SEUtils.byteArrayToHexString(msg.aid), {
@@ -438,7 +422,7 @@ SecureElementManager.prototype = {
                SEUtils.byteArrayToHexString(msg.aid) +
                ", Rejected with Reason : " + reason);
         if (callback) {
-          callback({ error: SE.ERROR_IO, reason: reason, response: [] });
+          callback({ error: SE.ERROR_GENERIC, reason: reason, response: [] });
         }
       }
     });
@@ -456,14 +440,9 @@ SecureElementManager.prototype = {
     }
 
     // TODO: Bug 1118098  - Integrate with ACE module
-
-    // Set the channel to CLA before calling connector's exchangeAPDU.
-    // See GP Spec, 11.1.4 Class Byte Coding
-    let channel = gMap.getChannel(msg);
-    msg.apdu.cla = this._setChannelToClassByte(msg.apdu.cla, channel);
     let connector = getConnector(msg.type);
-    connector.exchangeAPDU(PREFERRED_UICC_CLIENTID, msg.apdu.cla,
-                           msg.apdu.ins, msg.apdu.p1, msg.apdu.p2,
+    connector.exchangeAPDU(PREFERRED_UICC_CLIENTID, gMap.getChannel(msg),
+                           msg.apdu.cla, msg.apdu.ins, msg.apdu.p1, msg.apdu.p2,
                            SEUtils.byteArrayToHexString(msg.apdu.data),
                            msg.apdu.le, {
       notifyExchangeAPDUResponse: function(sw1, sw2, response) {
@@ -494,8 +473,6 @@ SecureElementManager.prototype = {
     }
 
     // TODO: Bug 1118098  - Integrate with ACE module
-
-    // Sanity passed! Create Connector obj based on the 'type'
     let connector = getConnector(msg.type);
     let channel = gMap.getChannel(msg);
     connector.closeChannel(PREFERRED_UICC_CLIENTID, channel, {

@@ -106,6 +106,20 @@ UiccConnector.prototype = {
     return this._isPresent;
   },
 
+  _setChannelToClassByte(cla, channel) {
+    if (channel < 4) {
+      // b7 = 0 indicates the first interindustry class byte coding
+      cla = (((cla & 0x9C) & 0xFF) |  channel);
+    } else if (channel < 20) {
+      // b7 = 1 indicates the further interindustry class byte coding
+      cla = (((cla & 0xB0) & 0xFF) | 0x40 | (channel - 4));
+    } else {
+      debug("Channel number must be within [0..19]");
+      return SE.ERROR_GENERIC;
+    }
+    return cla;
+  },
+
   _getChannelNumber: function(cla) {
     // As per GlobalPlatform Card Specification v2.2, check the 7th bit
     let classByteCoding = (cla & 0x40);
@@ -124,8 +138,8 @@ UiccConnector.prototype = {
 
   _doGetOpenResponse: function(clientId, channel, length, callback) {
     // Le value is set. It means that this is a request for all available
-    // response bytes
-    this.exchangeAPDU(clientId, (channel & 0xFF), SE.INS_GET_RESPONSE,
+    // response bytes.
+    this.exchangeAPDU(clientId, channel, (channel & 0xFF), SE.INS_GET_RESPONSE,
                         0x00, 0x00, null, length, {
       notifyExchangeAPDUResponse: function(sw1, sw2, response) {
 	debug("GET Response : " + response);
@@ -209,16 +223,6 @@ UiccConnector.prototype = {
 
   /**
    * Opens a supplementary channel on a given clientId
-   *
-   * @param clientId
-   *        ClientId representing a UICC / SIM slot
-   * @param aid
-   *        Application Identifier identifying the applet on the card.
-   * @param callback
-   *        Callback interface that implements 'nsISEChannelCallback'.
-   *        The result will be notified either through
-   *        'notifyOpenChannelSuccess(channel, openResponse)' (or)
-   *        'notifyError(error)'.
    * @todo remove self, use arrow functions
    */
   openChannel: function(clientId, aid, callback) {
@@ -254,20 +258,12 @@ UiccConnector.prototype = {
 
   /**
    * Transmit the C-APDU (command) on given clientId.
-   *
-   * @param clientId
-   *        ClientId representing a UICC / SIM slot
-   * @param command
-   *        Command APDU ('cla', 'ins', 'p1', 'p2', 'data', 'le').
-   * @param callback
-   *        Callback interface that implements 'nsISEChannelCallback'.
-   *        The result will be notified either through,
-   *        'notifyExchangeAPDUResponse(sw1, sw2, response)' (or)
-   *        'notifyError(error)'.
    */
-  exchangeAPDU: function(clientId, cla, ins, p1, p2, data, le, callback) {
+  exchangeAPDU: function(clientId, channel, cla, ins, p1, p2, data, le, callback) {
     this._checkPresence();
 
+    // See GP Spec, 11.1.4 Class Byte Coding
+    cla = this._setChannelToClassByte(cla, channel);
     let appendLe = (data !== null) && (le !== -1);
     // Note that P3 of the C-TPDU is set to ‘00’ in Case 1
     // (only headers) scenarios
@@ -303,15 +299,6 @@ UiccConnector.prototype = {
 
   /**
    * Closes the channel on given clientId.
-   *
-   * @param clientId
-   *        ClientId representing a UICC / SIM slot
-   * @param channel
-   *        Channel number to be closed
-   * @param callback
-   *        Callback interface that implements 'nsISEChannelCallback'.
-   *        The result will be notified either through
-   *        'notifyCloseChannelSuccess()' (or) 'notifyError(error)'.
    */
   closeChannel: function(clientId, channel, callback) {
     this._checkPresence();

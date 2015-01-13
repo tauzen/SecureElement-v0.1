@@ -134,15 +134,16 @@ SEReader.prototype = {
   closeAll: function closeAll() {
     return PromiseHelpers.createSEPromise((aResolverId) => {
       let promises = [];
+      // Notify all children
       for (let session of this._sessions) {
         promises.push(session.closeAll());
       }
       let resolver = PromiseHelpers.takePromiseResolver(aResolverId);
-      let self = this;
+      // Wait till all the promises are resolved
       Promise.all([promises]).then(function resolved() {
-        self._sessions = [];
+        this._sessions = [];
         resolver.resolve();
-      }, function rejected(reason) {
+      }.bind(this), function rejected(reason) {
         resolver.reject(new Error(SE.ERROR_BADSTATE +
           " Unable to close all channels associated with this reader"));
       });
@@ -246,14 +247,17 @@ SESession.prototype = {
         promises.push(channel.close());
       }
       let resolver = PromiseHelpers.takePromiseResolver(aResolverId);
-      let self = this;
+      // Wait till all the promises are resolved
       Promise.all([promises]).then(function resolved() {
-        self._isClosed = true;
-        self._channels = [];
-        // Notify parent of this session instance's closure
-        self._reader.onSessionClose(self.__DOM_IMPL__);
+        // Since all its children (channels) are closed,
+        // update self 'isClosed = true' and reset all the channel instances
+        this._isClosed = true;
+        this._channels = [];
+        // Notify parent of this session instance's closure, so that its
+        // instance entry can be removed from the parent as well.
+        this._reader.onSessionClose(this.__DOM_IMPL__);
         resolver.resolve();
-      }, function rejected(reason) {
+      }.bind(this), function rejected(reason) {
         resolver.reject(new Error(SE.ERROR_BADSTATE +
           " Unable to close all channels associated with this session"));
       });
@@ -300,13 +304,13 @@ SEChannel.prototype = {
   // Private function
   _checkClosed: function _checkClosed() {
     if (this._isClosed) {
-      throw new Error(SE.ERROR_BADSTATE +" Channel Already Closed!");
+      throw new Error(SE.ERROR_BADSTATE + " Channel Already Closed!");
     }
   },
 
   // Chrome-only function
   onClose: function onClose() {
-    this.isClosed = true;
+    this._isClosed = true;
     // Notify the parent
     this._session.onChannelClose(this.__DOM_IMPL__);
   },
@@ -482,7 +486,6 @@ SEResponse.prototype = {
 
 /**
  * SEManager
- * @todo add docs
  */
 function SEManager() {}
 
@@ -554,6 +557,7 @@ SEManager.prototype = {
     let promiseResolver = PromiseHelpers.takePromise(data.resolverId);
     if (promiseResolver) {
       resolver = promiseResolver.resolver;
+      // This 'context' is the instance that originated this IPC message.
       context = promiseResolver.context;
     }
 

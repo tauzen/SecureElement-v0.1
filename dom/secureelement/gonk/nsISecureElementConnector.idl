@@ -46,7 +46,7 @@ interface nsISEChannelCallback : nsISupports
   void notifyError(in DOMString error);
 };
 
-[scriptable, uuid(715663ce-e310-4db4-8a76-aaf618e8b786)]
+[scriptable, uuid(f4b5712f-8aa2-4f97-ad89-5a376e867cef)]
 interface nsISecureElementConnector : nsISupports
 {
    /**
@@ -68,9 +68,10 @@ interface nsISecureElementConnector : nsISupports
     *
     * @param clientId
     *        ClientId on which the logical channel will be established.
+    * @param channel
+    *        Channel on which C-APDU to be transmitted.
     * @param cla
-             Class Byte. Encode (mask channel) as per GP Card spec v2.2,
-    *        section 11.1.4.2.
+             Class Byte.
     * @param ins
              Instruction Byte
     * @param p1
@@ -87,6 +88,7 @@ interface nsISecureElementConnector : nsISupports
     *        callback to notify the result of the operation.
     */
     void exchangeAPDU(in unsigned long clientId,
+                      in long channel,
                       in octet cla,
                       in octet ins,
                       in octet p1,
