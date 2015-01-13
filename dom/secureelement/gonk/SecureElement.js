@@ -125,49 +125,28 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
 
     // Register the new SecureElement target.
     registerSecureElementTarget: function(message, readers) {
-      let appInfoMap = this.appInfoMap;
       let appId = message.data.appId;
-      let targetInfo = appInfoMap[appId];
-
-      // If the application Id is already registered
-      if (targetInfo) {
-        debug("Already registered SE target! " + appId);
+      if (this.appInfoMap[appId]) {
+        debug("Already registered SE target! appId:" + appId);
         return;
       }
-      let newAppInfo = { target: message.target,
-                         readerTypes: readers,
-                         channels: {} };
-      appInfoMap[appId] = newAppInfo;
+
+      this.appInfoMap[appId] = {
+        target: message.target,
+        readerTypes: readers,
+        channels: {}
+      };
+
       debug("Registering a new SE target " + appId);
     },
 
     // UnRegister the SecureElement target.
     unregisterSecureElementTarget: function(target) {
-      let targets = this.appInfoMap;
-      let appIdKeys = Object.keys(targets);
+      let appId = this.getAppIdByTarget(target);
 
-      for (let i = 0; i < appIdKeys.length; i++) {
-        let appId = appIdKeys[i];
-        let targetInfo = targets[appId];
-        if (targetInfo && targetInfo.target === target) {
-          // Remove the target from the list of registered targets
-          debug("Unregistered SE Target for AppId : " + appId);
-          delete targets[appId];
-        }
-      }
-    },
-
-    // Get the 'appInfo (appId & readerTypes)' associated with this 'target'.
-    getAppInfoByMsgTarget: function(target) {
-      let targets = this.appInfoMap;
-      let appIdKeys = Object.keys(targets);
-
-      for (let i = 0; i < appIdKeys.length; i++) {
-        let appId = appIdKeys[i];
-        let targetInfo = targets[appId];
-        if (targetInfo && targetInfo.target === target) {
-          return { appId: appId, readerTypes: targetInfo.readerTypes };
-        }
+      if (appId) {
+        debug("Unregistered SE Target for AppId : " + appId);
+        delete this.appInfoMap[appId];
       }
     },
 
@@ -179,7 +158,8 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
         return [];
       }
 
-      return this._getChannels(appInfo.channels);
+      let channels = appInfo.channels || {};
+      return Object.keys(channels).map(cKey => channels[cKey].channel);
     },
 
     // Gets channel count associated with the 'appId'
@@ -195,10 +175,9 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
     // Add channel to the appId. Upon successfully adding the entry
     // this function will return the 'token'
     addChannel: function(channel, msg) {
-      let appId = msg.appId;
-      let appInfo = this.appInfoMap[appId];
+      let appInfo = this.appInfoMap[msg.appId];
       if (!appInfo) {
-        debug("Unable to add channel: " + appId);
+        debug("Unable to add channel: " + msg.appId);
         return null;
       }
       // Generate a unique 'token' (alias) instead of sending 'channel number'.
@@ -212,21 +191,20 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
 
     // Remove the given channel entry based on type.
     // Note that channel will be unique per type
-    // @todo refactor
     removeChannel: function(channel, type) {
-      let targets = this.appInfoMap;
-      Object.keys(targets).forEach((appId) => {
-        let channels = targets[appId].channels;
-        Object.keys(channels).forEach((token) => {
-          if (channels[token].channel ===  channel &&
-              channels[token].seType === type) {
-              // We have found the match
-              debug("Deleting channel with token : " + token +
-                    ",  channel : " +  channel);
-              delete channels[token];
-          }
-        }); // End of Channels keys
-      }); // End of AppId keys
+      Object.keys(this.appInfoMap).forEach((appId) => {
+        let channels = this.appInfoMap[appId].channels;
+        let token = Object.keys(channels).find((ch) => {
+          return channels[ch].channel === channel &&
+                 channels[ch].seType === type;
+        });
+
+        if (token) {
+          debug("Deleting channel with token : " + token +
+                ",  channel : " +  channel);
+          delete channels[token];
+        }
+      });
     },
 
     // Validates the given 'channelToken' by checking if it is a registered one
@@ -257,11 +235,11 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
       return this.appInfoMap[data.appId].channels[data.channelToken].channel;
     },
 
-    // Returns an array of channels like [2,3,4] from appInfo.channels object.
-    // If no 'channel entry' exists in 'channels it returns an empty array '[]'
-    _getChannels: function(channels) {
-      channels = channels || {};
-      return Object.keys(channels).map(cKey => channels[cKey].channel);
+    getAppIdByTarget: function(target) {
+      let appId = Object.keys(this.appInfoMap).find((id) => {
+        return this.appInfoMap[id] && this.appInfoMap[id].target === target;
+      });
+      return appId;
     },
   };
 });
@@ -334,18 +312,16 @@ SecureElementManager.prototype = {
   },
 
   _closeAllChannelsByAppId: function(appId, type, callback) {
-    let allChannels = gMap.getAllChannelsByAppId(appId);
-    return this.closeAll(type, allChannels, callback);
-  },
-
-  // Closes all the channels for a given type
-  closeAll: function(type, channels, callback) {
+    let channels = gMap.getAllChannelsByAppId(appId);
     if (channels.length === 0) {
-      return callback ? callback({
-                          error: SE.ERROR_BADSTATE,
-                          reason: "No Active Channels to be closed!"
-                        })
-                      : null;
+      debug("No channels to close.");
+      if(callback) {
+        callback({
+          error: SE.ERROR_BADSTATE,
+          reason: "No Active Channels to be closed!"
+        });
+      }
+      return;
     }
 
     let connector = getConnector(type);
@@ -392,7 +368,8 @@ SecureElementManager.prototype = {
     let connector = getConnector(msg.type);
     connector.openChannel(PREFERRED_UICC_CLIENTID,
       SEUtils.byteArrayToHexString(msg.aid), {
-      notifyOpenChannelSuccess: function(channel, openResponse) {
+
+      notifyOpenChannelSuccess: (channel, openResponse) => {
         // Add the new 'channel' to the map upon success
         let channelToken = gMap.addChannel(channel, msg);
         if (callback) {
@@ -405,7 +382,7 @@ SecureElementManager.prototype = {
         }
       },
 
-      notifyError: function(reason) {
+      notifyError: (reason) => {
         debug("Failed to open the channel to AID : " +
                SEUtils.byteArrayToHexString(msg.aid) +
                ", Rejected with Reason : " + reason);
@@ -419,8 +396,7 @@ SecureElementManager.prototype = {
   handleTransmit: function(msg, callback) {
     // Perform basic sanity checks!
     if (!gMap.isValidChannelToken(msg)) {
-      debug("Invalid Token - " + msg.channelToken +
-            ", [appId: " + msg.appId + " ]");
+      debug("Invalid token:" + msg.channelToken + ", appId: " + msg.appId );
       if (callback) {
         callback({ error: SE.ERROR_GENERIC });
       }
@@ -433,16 +409,18 @@ SecureElementManager.prototype = {
                            msg.apdu.cla, msg.apdu.ins, msg.apdu.p1, msg.apdu.p2,
                            SEUtils.byteArrayToHexString(msg.apdu.data),
                            msg.apdu.le, {
-      notifyExchangeAPDUResponse: function(sw1, sw2, response) {
+      notifyExchangeAPDUResponse: (sw1, sw2, response) => {
         if (callback) {
           callback({
-            error: SE.ERROR_NONE, sw1: sw1, sw2: sw2,
+            error: SE.ERROR_NONE,
+            sw1: sw1,
+            sw2: sw2,
             response: SEUtils.hexStringToByteArray(response)
           });
         }
       },
 
-      notifyError: function(reason) {
+      notifyError: (reason) => {
         debug("Transmit failed, rejected with Reason : " + reason);
         if (callback) {
           callback({ error: SE.ERROR_INVALIDAPPLICATION, reason: reason });
@@ -454,8 +432,7 @@ SecureElementManager.prototype = {
   handleCloseChannel: function(msg, callback) {
     // Perform Sanity Checks!
     if (!gMap.isValidChannelToken(msg)) {
-      debug("Invalid Token - " + msg.channelToken +
-            ", [appId: " + msg.appId + " ]");
+      debug("Invalid token:" + msg.channelToken + ", appId:" + msg.appId);
       if (callback) {
         callback({ error: SE.ERROR_GENERIC });
       }
@@ -466,16 +443,15 @@ SecureElementManager.prototype = {
     let connector = getConnector(msg.type);
     let channel = gMap.getChannel(msg);
     connector.closeChannel(PREFERRED_UICC_CLIENTID, channel, {
-      notifyCloseChannelSuccess: function() {
+      notifyCloseChannelSuccess: () => {
         gMap.removeChannel(channel, msg.type);
         if (callback) {
           callback({ error: SE.ERROR_NONE });
         }
       },
 
-      notifyError: function(reason) {
-        debug("Failed to close the channel #  : " + channel +
-              ", Rejected with Reason : " + reason);
+      notifyError: (reason) => {
+        debug("Failed to close channel:" + channel + ", reason: " + reason);
         if (callback) {
           callback({ error: SE.ERROR_BADSTATE, reason: reason });
         }
@@ -483,16 +459,12 @@ SecureElementManager.prototype = {
     });
   },
 
-  // 1. Query the map to get 'appInfo' based on 'msg.target'.
-  //    (appInfo.appId & appInfo.readerTypes)
-  // 2. Iterate over all registered readerTypes and close all channels by type.
-  // 3. Finally unregister the target from 'gMap' by deleting its entry.
   handleChildProcessShutdown: function(target) {
-    let appInfo = gMap.getAppInfoByMsgTarget(target);
-    if (!appInfo) {
+    let appId = gMap.getAppIdByTarget(target);
+    if (!appId) {
       return;
     }
-    this._closeAllChannelsByAppId(appInfo.appId, SE.TYPE_UICC, null);
+    this._closeAllChannelsByAppId(appId, SE.TYPE_UICC, null);
     gMap.unregisterSecureElementTarget(target);
   },
 
