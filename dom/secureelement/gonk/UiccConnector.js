@@ -225,16 +225,6 @@ UiccConnector.prototype = {
 
   /**
    * Opens a supplementary channel on a given clientId
-   *
-   * @param clientId
-   *        ClientId representing a UICC / SIM slot
-   * @param aid
-   *        Application Identifier identifying the applet on the card.
-   * @param callback
-   *        Callback interface that implements 'nsISEChannelCallback'.
-   *        The result will be notified either through
-   *        'notifyOpenChannelSuccess(channel, openResponse)' (or)
-   *        'notifyError(error)'.
    */
   openChannel: function(clientId, aid, callback) {
     this._checkPresence();
