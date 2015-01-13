@@ -4,10 +4,9 @@
 
 /* Copyright © 2014, Deutsche Telekom, Inc. */
 
-/* globals dump, Components, XPCOMUtils, DOMRequestIpcHelper, cpmm, SE,
-   Services */
-
 "use strict";
+
+/* globals dump, Components, XPCOMUtils, DOMRequestIpcHelper, cpmm, SE  */
 
 const DEBUG = true;
 function debug(s) {
@@ -301,7 +300,6 @@ SEChannel.prototype = {
   contractID: "@mozilla.org/secureelement/channel;1",
   QueryInterface: XPCOMUtils.generateQI([]),
 
-  // Private function
   _checkClosed: function _checkClosed() {
     if (this._isClosed) {
       throw new Error(SE.ERROR_BADSTATE + " Channel Already Closed!");
@@ -338,15 +336,14 @@ SEChannel.prototype = {
     }
 
     if ((command.cla & 0x80 === 0) && ((command.cla & 0x60) !== 0x20)) {
-      if (ins === SE.INS_MANAGE_CHANNEL) {
+      if (command.ins === SE.INS_MANAGE_CHANNEL) {
         return PromiseHelpers.rejectWithSEError(SE.ERROR_SECURITY +
                ", MANAGE CHANNEL command not permitted");
       }
       if ((command.ins === SE.INS_SELECT) && (command.p1 == 0x04)) {
-	// SELECT by DF Name (p1=04) is not allowed
+        // SELECT by DF Name (p1=04) is not allowed
         return PromiseHelpers.rejectWithSEError(SE.ERROR_SECURITY +
                ", SELECT command not permitted");
-	throw new Error(SE.ERROR_SECURITY);
       }
       debug("Attempting to transmit an ISO command");
     } else {
@@ -521,11 +518,10 @@ SEManager.prototype = {
 
   // This function will be called from DOMRequestIPCHelper.
   uninit: function uninit() {
-    let self = this;
     // All requests that are still pending need to be invalidated
     // because the context is no longer valid.
-    this.forEachPromiseResolver(function(k) {
-      self.takePromiseResolver(k).reject("Window Context got destroyed!");
+    this.forEachPromiseResolver((k) => {
+      this.takePromiseResolver(k).reject("Window Context got destroyed!");
     });
     PromiseHelpers = null;
     this._window = null;
@@ -561,7 +557,7 @@ SEManager.prototype = {
       context = promiseResolver.context;
     }
 
-    if (DEBUG) debug("receiveMessage(): " + message.name);
+    debug("receiveMessage(): " + message.name);
     switch (message.name) {
       case "SE:GetSEReadersResolved":
         let readers = [];
