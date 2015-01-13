@@ -108,54 +108,44 @@ SEReader.prototype = {
   contractID: "@mozilla.org/secureelement/reader;1",
   QueryInterface: XPCOMUtils.generateQI([]),
 
+  // Chrome-only function
+  onSessionClose: function onSessionClose(sessionContext) {
+    let index = this._sessions.indexOf(sessionContext);
+    if (index != -1) {
+      this._sessions.splice(index, 1);
+    }
+  },
+
   initialize: function initialize(win, type) {
     this._window = win;
     this.type = type;
   },
 
-  // Chrome-only function
-  onOpenSession: function onOpenSession(session) {
-    this._sessions.push(session);
-  },
-
-  // Chrome-only function
-  onClose: function onClose() {
-    // Notify all children
-    for (let session of this._sessions) {
-      session.onClose();
-    }
-  },
-
   openSession: function openSession() {
-    return PromiseHelpers.createSEPromiseWithCtx(this, (aResolverId) => {
-      /**
-       * @params for 'SE:OpenSession'
-       *
-       * resolverId  : ID that identifies this IPC request.
-       * type        : Type identifying the session instance ('uicc' / 'eSE')
-       * appId       : Current appId obtained from 'Principal' obj
-       */
-      cpmm.sendAsyncMessage("SE:OpenSession", {
-        resolverId: aResolverId,
-        type: this.type,
-        appId: this._window.document.nodePrincipal.appId
-      });
+    return PromiseHelpers.createSEPromise((aResolverId) => {
+      let chromeObj = new SESession();
+      chromeObj.initialize(this._window, this);
+      let contentObj = this._window.SESession._create(this._window, chromeObj);
+
+      this._sessions.push(chromeObj);
+      PromiseHelpers.takePromiseResolver(aResolverId).resolve(contentObj);
     });
   },
 
   closeAll: function closeAll() {
-    return PromiseHelpers.createSEPromiseWithCtx(this, (aResolverId) => {
-      /**
-       * @params for 'SE:CloseAllByReader'
-       *
-       * resolverId  : ID that identifies this IPC request.
-       * type        : Type identifying the session instance ('uicc' / 'eSE')
-       * appId       : Current appId obtained from 'Principal' obj
-       */
-      cpmm.sendAsyncMessage("SE:CloseAllByReader", {
-        resolverId: aResolverId,
-        type: this.type,
-        appId: this._window.document.nodePrincipal.appId
+    return PromiseHelpers.createSEPromise((aResolverId) => {
+      let promises = [];
+      for (let session of this._sessions) {
+        promises.push(session.closeAll());
+      }
+      let resolver = PromiseHelpers.takePromiseResolver(aResolverId);
+      let self = this;
+      Promise.all([promises]).then(function resolved() {
+        self._sessions = [];
+        resolver.resolve();
+      }, function rejected(reason) {
+        resolver.reject(new Error(SE.ERROR_BADSTATE +
+          " Unable to close all channels associated with this reader"));
       });
     });
   },
@@ -178,8 +168,6 @@ function SESession() {}
 SESession.prototype = {
   _window: null,
 
-  _sessionToken: null,
-
   _channels: [],
 
   _isClosed: false,
@@ -198,24 +186,20 @@ SESession.prototype = {
   },
 
   // Chrome-only function
-  onOpenLogicalChannel: function onOpenLogicalChannel(channelContext) {
+  onChannelOpen: function onChannelOpen(channelContext) {
     this._channels.push(channelContext);
   },
 
   // Chrome-only function
-  onClose: function onClose() {
-    // Notify all children
-    for (let channel of this._channels) {
-      channel.onClose();
+  onChannelClose: function onChannelClose(channelContext) {
+    let index = this._channels.indexOf(channelContext);
+    if (index != -1) {
+      this._channels.splice(index, 1);
     }
-    this.isClosed = true;
   },
 
-  initialize: function initialize(win, sessionToken, readerCtx) {
+  initialize: function initialize(win, readerCtx) {
     this._window = win;
-    // Update the 'sessionToken' that identifies and represents this
-    // instance of the object
-    this._sessionToken = sessionToken;
     this.reader = readerCtx;
   },
 
@@ -241,15 +225,12 @@ SESession.prototype = {
        *
        * resolverId  : ID that identifies this IPC request.
        * aid         : AID that identifies the applet on SecureElement
-       * sessionToken: ID that identifies the current ongoing session that
-                       this channel belongs to.
        * type        : Reader type ('uicc' / 'eSE')
        * appId       : Current appId obtained from 'Principal' obj
        */
       cpmm.sendAsyncMessage("SE:OpenChannel", {
         resolverId: aResolverId,
         aid: aid,
-        sessionToken: this._sessionToken,
         type: this.reader.type,
         appId: this._window.document.nodePrincipal.appId
       });
@@ -258,21 +239,24 @@ SESession.prototype = {
 
   closeAll: function closeAll() {
     this._checkClosed();
-    return PromiseHelpers.createSEPromiseWithCtx(this, (aResolverId) => {
-      /**
-       * @params for 'SE:CloseAllBySession'
-       *
-       * resolverId  : ID that identifies this IPC request.
-       * sessionToken: ID that identifies the current ongoing session that
-                       this channel belongs to.
-       * type        : Reader type ('uicc' / 'eSE')
-       * appId       : Current appId obtained from 'Principal' obj
-       */
-      cpmm.sendAsyncMessage("SE:CloseAllBySession", {
-        resolverId: aResolverId,
-        sessionToken: this._sessionToken,
-        type: this.reader.type,
-        appId: this._window.document.nodePrincipal.appId
+
+    return PromiseHelpers.createSEPromise((aResolverId) => {
+      let promises = [];
+      // Notify all children
+      for (let channel of this._channels) {
+        promises.push(channel.close());
+      }
+      let resolver = PromiseHelpers.takePromiseResolver(aResolverId);
+      let self = this;
+      Promise.all([promises]).then(function resolved() {
+        self._isClosed = true;
+        self._channels = [];
+        // Notify parent of this session instance's closure
+        self.reader.onSessionClose(self);
+        resolver.resolve();
+      }, function rejected(reason) {
+        resolver.reject(new Error(SE.ERROR_BADSTATE +
+          " Unable to close all channels associated with this session"));
       });
     });
   },
@@ -298,8 +282,6 @@ SEChannel.prototype = {
 
   _channelToken: null,
 
-  _sessionToken: null,
-
   _isClosed: false,
 
   session: null,
@@ -322,15 +304,16 @@ SEChannel.prototype = {
   // Chrome-only function
   onClose: function onClose() {
     this.isClosed = true;
+    // Notify the parent
+    this.session.onChannelClose(this);
   },
 
   initialize: function initialize(win, channelToken, isBasicChannel,
-                                  openResponse, sessionToken, sessionCtx) {
+                                  openResponse, sessionCtx) {
     this._window = win;
     // Update the 'channel token' that identifies and represents this
     // instance of the object
     this._channelToken = channelToken;
-    this._sessionToken = sessionToken;
     // Update 'session' obj
     this.session = sessionCtx;
     this.openResponse = Cu.cloneInto(new Uint8Array(openResponse), win);
@@ -379,8 +362,6 @@ SEChannel.prototype = {
        * resolverId  : ID that identifies this IPC request.
        * apdu        : Object that wraps SECommand parameters
        * type        : Reader type ('uicc' / 'eSE')
-       * sessionToken: ID that identifies the current ongoing session that
-                       this channel belongs to.
        * channelToken: Token that identifies the current channel over which
                        'c-apdu' is being sent.
        * appId       : Current appId obtained from 'Principal' obj
@@ -389,7 +370,6 @@ SEChannel.prototype = {
         resolverId: aResolverId,
         apdu: commandAPDU,
         type: this.session.reader.type,
-        sessionToken: this._sessionToken,
         channelToken: this._channelToken,
         appId: this._window.document.nodePrincipal.appId
       });
@@ -405,8 +385,6 @@ SEChannel.prototype = {
        *
        * resolverId  : ID that identifies this IPC request.
        * type        : Reader type ('uicc' / 'eSE')
-       * sessionToken: ID that identifies the current ongoing session that
-                       this channel belongs to.
        * channelToken: Token that identifies the current channel over which
                        'c-apdu' is being sent.
        * appId       : Current appId obtained from 'Principal' obj
@@ -414,7 +392,6 @@ SEChannel.prototype = {
       cpmm.sendAsyncMessage("SE:CloseChannel", {
         resolverId: aResolverId,
         type: this.session.reader.type,
-        sessionToken: this._sessionToken,
         channelToken: this._channelToken,
         appId: this._window.document.nodePrincipal.appId
       });
@@ -517,19 +494,13 @@ SEManager.prototype = {
 
     // Add the messages to be listened to.
     const messages = ["SE:GetSEReadersResolved",
-                      "SE:OpenSessionResolved",
                       "SE:OpenChannelResolved",
                       "SE:CloseChannelResolved",
                       "SE:TransmitAPDUResolved",
-                      "SE:CloseAllByReaderResolved",
-                      "SE:CloseAllBySessionResolved",
                       "SE:GetSEReadersRejected",
-                      "SE:OpenSessionRejected",
                       "SE:OpenChannelRejected",
                       "SE:CloseChannelRejected",
-                      "SE:TransmitAPDURejected",
-                      "SE:CloseAllByReaderRejected",
-                      "SE:CloseAllBySessionRejected"];
+                      "SE:TransmitAPDURejected"];
 
     this.initDOMRequestHelper(win, messages);
   },
@@ -564,11 +535,16 @@ SEManager.prototype = {
   receiveMessage: function receiveMessage(message) {
     let result = message.data.result;
     let data = message.data.metadata;
-    let promiseResolver = PromiseHelpers.takePromise(data.resolverId);
-    let resolver = promiseResolver.resolver;
-    let context = promiseResolver.context;
     let chromeObj = null;
     let contentObj = null;
+    let resolver = null;
+    let context = null;
+
+    let promiseResolver = PromiseHelpers.takePromise(data.resolverId);
+    if (promiseResolver) {
+      resolver = promiseResolver.resolver;
+      context = promiseResolver.context;
+    }
 
     if (DEBUG) debug("receiveMessage(): " + message.name);
     switch (message.name) {
@@ -582,29 +558,16 @@ SEManager.prototype = {
         }
         resolver.resolve(readers);
         break;
-      case "SE:OpenSessionResolved":
-        chromeObj = new SESession();
-        chromeObj.initialize(this._window,
-                             result.sessionToken,
-                             context.__DOM_IMPL__);
-        if (context) {
-          // Notify context's handler with SESession instance
-          context.onOpenSession(chromeObj);
-        }
-        contentObj = this._window.SESession._create(this._window, chromeObj);
-        resolver.resolve(contentObj);
-        break;
       case "SE:OpenChannelResolved":
         chromeObj = new SEChannel();
         chromeObj.initialize(this._window,
                              result.channelToken,
                              result.isBasicChannel,
                              result.openResponse,
-                             data.sessionToken,
-                             context.__DOM_IMPL__);
+                             context);
         if (context) {
           // Notify context's handler with SEChannel instance
-          context.onOpenLogicalChannel(chromeObj);
+          context.onChannelOpen(chromeObj);
         }
         contentObj = this._window.SEChannel._create(this._window, chromeObj);
         resolver.resolve(contentObj);
@@ -614,12 +577,10 @@ SEManager.prototype = {
         chromeObj.initialize(result.sw1,
                              result.sw2,
                              result.response,
-                             context.__DOM_IMPL__);
+                             context);
         contentObj = this._window.SEResponse._create(this._window, chromeObj);
         resolver.resolve(contentObj);
         break;
-      case "SE:CloseAllByReaderResolved":
-      case "SE:CloseAllBySessionResolved":
       case "SE:CloseChannelResolved":
         if (context) {
           // Notify context's onClose handler
@@ -628,12 +589,9 @@ SEManager.prototype = {
         resolver.resolve();
         break;
       case "SE:GetSEReadersRejected":
-      case "SE:OpenSessionRejected":
       case "SE:OpenChannelRejected":
       case "SE:CloseChannelRejected":
       case "SE:TransmitAPDURejected":
-      case "SE:CloseAllByReaderRejected":
-      case "SE:CloseAllBySessionRejected":
         let error = data.error || SE.ERROR_GENERIC;
         resolver.reject(error);
         break;

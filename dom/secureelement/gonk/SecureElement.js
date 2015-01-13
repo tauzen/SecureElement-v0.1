@@ -45,12 +45,9 @@ function debug(s) {
 
 const SE_IPC_SECUREELEMENT_MSG_NAMES = [
   "SE:GetSEReaders",
-  "SE:OpenSession",
   "SE:OpenChannel",
   "SE:CloseChannel",
-  "SE:TransmitAPDU",
-  "SE:CloseAllByReader",
-  "SE:CloseAllBySession"
+  "SE:TransmitAPDU"
 ];
 
 const SECUREELEMENTMANAGER_CONTRACTID =
@@ -87,22 +84,10 @@ function getConnector(type) {
 
 /**
  * 'gMap' is a nested dictionary object that manages all the information
- * pertaining to sessions and channels for a given application (appId).
- * An application (appId / content) can open multiple sessions.
- * In turn each session can open multiple channels with the secure element.
- * Following are its (key,value) attributes and brief description:
- * (key)'appId' - Key used mainly to retrieve the 'session obj' (sessions)
- * 'target' - Target obj that identifies the content target to notify to
- * 'readerTypes' - Types ('uicc' / 'eSE') that are available to the application
- * 'sessions' - Dictionary obj that holds all the sessions opened by the app
- * (key)'sessionToken' - Key used to retrieve the 'session info' 
- * 'type' - Session type indicating 'uicc' (or) 'eSE'
- * 'channels' - Dictionary obj that holds all the channels opened by the session
- * (key)'token' - Key used to retrieve 'channel info'
- * 'type' - Channel type indicating if it is 'logical' / 'basic'
- * 'aid' - AID that identifies the opened channel.
- * 'channel' - The channel number that was returned by lower layers upon 
- * successfully opening a channel
+ * pertaining to channels for a given application (appId). It manages the
+ * relationship between given application and its opened channels.
+ * Note that an application (appId / content) can open multiple channels with a
+ * secure element
  */
 XPCOMUtils.defineLazyGetter(this, "gMap", function() {
   return {
@@ -113,40 +98,20 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
     {[appId :// (key = '1020')
         target         : msg.target
         readerTypes    : [] // 'uicc','eSE'
-        sessions       : {
-           [sessionToken : // (key = '1111')
-              type :
-              channels : {
-                 [token: // (key = 'aaaaa')
-                    type:
-                    aid :
-                     channel : ]
-                 [token: // (key = 'bbbbb')
-                    type:
-                    aid :
-                     channel : ]
-                 [token: // (key = 'ccccc')
-                    type:
-                    aid :
-                     channel :]
-              }] // End of 'channels'
-           [sessionToken : // (key = '22222')
-              type :
-              channels : {
-                 [token: // (key = 'ddddd')
-                    type:
-                    aid :
-                     channel :]
-                 [token: // (key = 'eeeee')
-                    type:
-                    aid :
-                     channel : ]
-                 [token: // (key = 'fffff')
-                    type:
-                    aid :
-                     channel :]
-              }] // End of 'channels'
-        }] // End of 'sessions'
+        channels : {
+          [token: // (key = 'aaaaa')
+            seType: // 'uicc' or 'eSE'
+            aid :
+            channel : ]
+          [token: // (key = 'bbbbb')
+            seType:
+            aid :
+            channel : ]
+          [token: // (key = 'ccccc')
+            seType:
+            aid :
+            channel :]
+        }] // End of 'channels'
     [appId : // (key = '1025')
         ...
         ...
@@ -169,7 +134,7 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
       }
       let newAppInfo = { target: message.target,
                          readerTypes: readers,
-                         sessions: {} };
+                         channels: {} };
       appInfoMap[appId] = newAppInfo;
       debug("Registering a new SE target " + appId);
     },
@@ -204,137 +169,42 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
       }
     },
 
-    // Gets all the channels in an array for the given appId and
-    // optional reader type
-    getAllChannelsByAppIdType: function(appId, type) {
+    // Gets all the channels in an array for the given appId
+    getAllChannelsByAppId: function(appId) {
       let appInfo = this.appInfoMap[appId];
       if (!appInfo) {
-        debug("Unable to get channels : " + appId + ", type:" + type);
+        debug("Unable to get channels : " + appId);
         return [];
       }
 
-      let allChannels = [];
-      let sessions = appInfo.sessions;
-      Object.keys(sessions).forEach((sKey) => {
-        if (type && sessions[sKey].type !== type) {
-          return;
-        }
-
-        let channels = this._getChannels(sessions[sKey].channels);
-        allChannels = allChannels.concat(channels);
-      });
-
-      return allChannels;
+      return this._getChannels(appInfo.channels);
     },
 
-    // Checks if the 'readerType' is a registered / supported one or not for
-    // the given 'appId'
-    isSupportedReaderType: function(data) {
-      // TODO: Bug 1118101 Get supported readerTypes based on the permissions
-      // available for the given.
-      let types = this.appInfoMap[data.appId].readerTypes;
-      return (types.indexOf(data.type) > -1);
-    },
-
-    // Add a new sessionToken for a given appId
-    addSession: function(msg) {
-      let appId = msg.appId;
-      let type = msg.type;
-      // Generate a unique sessionToken and send it to content. All subsequent
-      // operations may happen on this session.
-      let sessionToken = this._getUUIDGenerator().generateUUID().toString();
-
+    // Gets channel count associated with the 'appId'
+    getChannelCount: function(appId) {
       let appInfo = this.appInfoMap[appId];
       if (!appInfo) {
-        debug("Unable to add session: " + appId);
-        return null;
-      }
-      appInfo.sessions[sessionToken] = { type: type, channels: {} };
-      return sessionToken;
-    },
-
-    // Remove the sessionToken from given appId
-    removeSession: function(msg) {
-      let sessions = this.appInfoMap[msg.appId].sessions;
-      if (sessions[msg.sessionToken].type === msg.type) {
-        delete sessions[msg.sessionToken];
-      }
-    },
-
-    // Removes / Resets all sessions for a given appId.
-    removeAllSessions: function(msg) {
-      let allSessions = this.appInfoMap[msg.appId].sessions;
-      // reset all sessions
-      if (allSessions) {
-        allSessions = {};
-      }
-    },
-
-    // Returns true if the given sessionToken is already registered / valid one,
-    // else returns false
-    isValidSession: function(data) {
-      let { appId: appId, sessionToken: sToken } = data;
-
-      // appId needs to be present
-      if (!appId || !this.appInfoMap[appId]) {
-        return false;
-      }
-
-      if (sToken && !this.appInfoMap[appId].sessions[sToken]) {
-        return false;
-      }
-
-      return true;
-    },
-
-    // Gets channel count associated with the 'sessionToken'
-    getChannelCountBySessionToken: function(sessionToken, appId) {
-      let session = this.appInfoMap[appId].sessions[sessionToken];
-      if (!session) {
-        debug("Unable to get channel count: " + appId +
-              " sessionToken: " + sessionToken);
+        debug("Unable to get channel count: " + appId);
         return 0;
       }
-      return Object.keys(session.channels).length;
+      return Object.keys(appInfo.channels).length;
     },
 
-    // Gets all the channels associated with the 'sessionToken'
-    getAllChannelsBySessionToken: function(sessionToken, appId) {
-      let session = this.appInfoMap[appId].sessions[sessionToken];
-      return this._getChannels(session.channels);
-    },
-
-    // Add channel to a given sessionToken. Upon successfully adding the entry
+    // Add channel to the appId. Upon successfully adding the entry
     // this function will return the 'token'
-    // @todo use isValidSession instead of manual validation 
     addChannel: function(channel, msg) {
       let appId = msg.appId;
-      // Generate a unique 'token' (alias) instead of sending 'channel number'.
-      // to the content. Any further 'Channel' related operations by the content
-      // shall operate using this token.
-      let token = this._getUUIDGenerator().generateUUID().toString();
-
       let appInfo = this.appInfoMap[appId];
       if (!appInfo) {
         debug("Unable to add channel: " + appId);
         return null;
       }
-      let session = appInfo.sessions[msg.sessionToken];
-      if (!session) {
-        debug("Unable to add channel: Invalid session, " + msg.sessionToken +
-              " appId:" + appId);
-        return null;
-      }
-
-      // Add if 'type' matches
-      if (session.type !== msg.type) {
-        debug("Unable to add channel: Type Mismatch - " + session.type +
-              " Vs " + msg.type + " (or) Channel already added:" +
-              channel + " " + session.channels[token].channel);
-        return null;
-      }
+      // Generate a unique 'token' (alias) instead of sending 'channel number'.
+      // to the content. Any further 'Channel' related operations by the content
+      // shall operate using this token.
+      let token = this._getUUIDGenerator().generateUUID().toString();
       // Add the entry
-      session.channels[token] = { aid: msg.aid, channel:  channel };
+      appInfo.channels[token] = { seType: msg.type, aid: msg.aid, channel:  channel };
       return token;
     },
 
@@ -344,58 +214,48 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
     removeChannel: function(channel, type) {
       let targets = this.appInfoMap;
       Object.keys(targets).forEach((appId) => {
-        let sessions = targets[appId].sessions;
-        Object.keys(sessions).forEach((sessionToken) => {
-          if (sessions[sessionToken].type === type) {
-            let channels = sessions[sessionToken].channels;
-            Object.keys(channels).forEach((token) => {
-              if (channels[token].channel ===  channel) {
-                // We have found the match
-                debug("Deleting channel with token : " + token +
-                      ",  channel : " +  channel);
-                delete channels[token];
-              }
-            }); // End of Channels keys
+        let channels = targets[appId].channels;
+        Object.keys(channels).forEach((token) => {
+          if (channels[token].channel ===  channel &&
+              channels[token].seType === type) {
+              // We have found the match
+              debug("Deleting channel with token : " + token +
+                    ",  channel : " +  channel);
+              delete channels[token];
           }
-        }); // End of Sessions keys
+        }); // End of Channels keys
       }); // End of AppId keys
     },
 
     // Validates the given 'channelToken' by checking if it is a registered one
-    // for the given (appId, sessionToken, channelToken)
-    // @todo reuse isValidSession here
+    // for the given (appId, channelToken)
     isValidChannelToken: function(data) {
-      let { appId: appId, sessionToken: sToken, channelToken: chToken } = data;
+      let { appId: appId, channelToken: chToken } = data;
 
       // appId needs to be present
       if (!appId || !this.appInfoMap[appId]) {
         return false;
       }
 
-      if (sToken && !this.appInfoMap[appId].sessions[sToken]) {
-        return false;
-      }
-
       if (chToken &&
-          !this.appInfoMap[appId].sessions[sToken].channels[chToken]) {
+          !this.appInfoMap[appId].channels[chToken]) {
         return false;
       }
 
       return true;
     },
 
-    // Get the 'channel' associated with (appId, sessionToken, channelToken)
+    // Get the 'channel' associated with (appId, channelToken)
     getChannel: function(data) {
       if (!this.isValidChannelToken(data)) {
         debug("InValid Channel Token. Unable to get the channel");
         return null;
       }
 
-      return this.appInfoMap[data.appId].sessions[data.sessionToken]
-                 .channels[data.channelToken].channel;
+      return this.appInfoMap[data.appId].channels[data.channelToken].channel;
     },
 
-    // Returns an array of channels like [2,3,4] from session.channels object. 
+    // Returns an array of channels like [2,3,4] from appInfo.channels object.
     // If no 'channel entry' exists in 'channels it returns an empty array '[]'
     // @todo consider removing
     _getChannels: function(channels) {
@@ -419,8 +279,8 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
  * child process / content. It is also the 'message manager' of the module.
  * It interacts with other objects such as 'gMap' & 'Connector instances
  * (UiccConnector, eSEConnector)' to perform various operations.
- * It mainly interacts with 'gMap' to query the state of Readers, Sessions, 
- * Channels, while it interacts with 'Connector instances' to perform low 
+ * It mainly interacts with 'gMap' to query the state of Channels,
+ * while it interacts with 'Connector instances' to perform low
  * level SE-related (open,close,transmit) I/O operations.
  */
 function SecureElementManager() {
@@ -430,8 +290,6 @@ function SecureElementManager() {
   this.handlers["SE:OpenChannel"] = this.handleOpenChannel;
   this.handlers["SE:CloseChannel"] = this.handleCloseChannel;
   this.handlers["SE:TransmitAPDU"] = this.handleTransmit;
-  this.handlers["SE:CloseAllByReader"] = this.handleCloseAllChannelsByReader;
-  this.handlers["SE:CloseAllBySession"] = this.handleCloseAllChannelsBySessionToken;
 
   Services.obs.addObserver(this, NS_XPCOM_SHUTDOWN_OBSERVER_ID, false);
 }
@@ -471,55 +329,6 @@ SecureElementManager.prototype = {
     ppmm = null;
   },
 
-  _checkErrorsForOpenChannel(msg) {
-    let error = SE.ERROR_NONE;
-    if (!gMap.isValidSession(msg)) {
-      debug("OpenChannel: Invalid Session! " + msg.sessionToken +
-            " for appId : " + msg.appId);
-      return SE.ERROR_GENERIC;
-    }
-
-    if (gMap.getChannelCountBySessionToken(msg.sessionToken, msg.appId) >= 
-        SE.MAX_CHANNELS_ALLOWED_PER_SESSION) {
-      debug("Max channels per session exceed !!!");
-      return SE.ERROR_GENERIC;
-    }
-
-    return error;
-  },
-
-  _checkErrorsForTransmit(msg) {
-    let error = SE.ERROR_NONE;
-    if (!gMap.isValidSession(msg)) {
-      debug("Transmit: Invalid Session! " + msg.sessionToken + 
-            " for appId : " + msg.appId);
-      return SE.ERROR_GENERIC;
-    }
-
-    if (!gMap.isValidChannelToken(msg)) {
-      debug("Invalid Token - " + msg.channelToken + ", [appId: " + msg.appId + 
-            ", sessionToken: " + msg.sessionToken + " ]");
-      return SE.ERROR_GENERIC;
-    }
-    return error;
-  },
-
-  _checkErrorsForCloseChannel(msg) {
-    let error = SE.ERROR_NONE;
-    if (!gMap.isValidSession(msg)) {
-      debug("CloseChannel: Invalid Session " + msg.sessionToken + 
-            " for appId : " + msg.appId);
-      return SE.ERROR_GENERIC;
-    }
-
-    if (!gMap.isValidChannelToken(msg)) {
-      debug("Invalid Token - " + msg.channelToken + ", [appId: " + msg.appId + 
-            ", sessionToken: " + msg.sessionToken + " ]");
-      return SE.ERROR_GENERIC;
-    }
-    return error;
-  },
-
   // Private function used to retreive available readerNames
   _getAvailableReaders: function() {
     let readerTypes = [];
@@ -546,8 +355,9 @@ SecureElementManager.prototype = {
     return cla;
   },
 
-  _closeAllChannelsByAppIdAndType: function(appId, type, callback) {
-    return this.closeAll(type, gMap.getAllChannelsByAppIdType(appId), callback);
+  _closeAllChannelsByAppId: function(appId, type, callback) {
+    let allChannels = gMap.getAllChannelsByAppId(appId);
+    return this.closeAll(type, allChannels, callback);
   },
 
   // Closes all the channels for a given type
@@ -595,10 +405,11 @@ SecureElementManager.prototype = {
 
   handleOpenChannel: function(msg, callback) {
     // Perform Sanity Checks!
-    let error = this._checkErrorsForOpenChannel(msg);
-    if (error !== SE.ERROR_NONE) {
+    if (gMap.getChannelCount(msg.appId) >=
+        SE.MAX_CHANNELS_ALLOWED_PER_SESSION) {
+      debug("Max channels per session exceed !!!");
       if (callback) {
-        callback({ error: error });
+        callback({ error: SE.ERROR_GENERIC });
       }
       return;
     }
@@ -635,10 +446,11 @@ SecureElementManager.prototype = {
 
   handleTransmit: function(msg, callback) {
     // Perform basic sanity checks!
-    let error = this._checkErrorsForTransmit(msg);
-    if (error !== SE.ERROR_NONE) {
+    if (!gMap.isValidChannelToken(msg)) {
+      debug("Invalid Token - " + msg.channelToken +
+            ", [appId: " + msg.appId + " ]");
       if (callback) {
-        callback({ error: error });
+        callback({ error: SE.ERROR_GENERIC });
       }
       return;
     }
@@ -672,10 +484,11 @@ SecureElementManager.prototype = {
 
   handleCloseChannel: function(msg, callback) {
     // Perform Sanity Checks!
-    let error = this._checkErrorsForCloseChannel(msg);
-    if (error !== SE.ERROR_NONE) {
+    if (!gMap.isValidChannelToken(msg)) {
+      debug("Invalid Token - " + msg.channelToken +
+            ", [appId: " + msg.appId + " ]");
       if (callback) {
-        callback({ error: error });
+        callback({ error: SE.ERROR_GENERIC });
       }
       return;
     }
@@ -703,19 +516,6 @@ SecureElementManager.prototype = {
     });
   },
 
-  // Closes all the channels opened by a session
-  handleCloseAllChannelsBySessionToken: function(data, callback) {
-    return this.closeAll(data.type,
-      gMap.getAllChannelsBySessionToken(data.sessionToken, data.appId),
-      callback);
-  },
-
-  // Closes all the channels opened by the reader
-  handleCloseAllChannelsByReader: function(data, callback) {
-    return this.closeAll(data.type,
-      gMap.getAllChannelsByAppIdType(data.appId, data.type), callback);
-  },
-
   // 1. Query the map to get 'appInfo' based on 'msg.target'.
   //    (appInfo.appId & appInfo.readerTypes)
   // 2. Iterate over all registered readerTypes and close all channels by type.
@@ -726,37 +526,20 @@ SecureElementManager.prototype = {
     if (!appInfo) {
       return;
     }
-    this._closeAllChannelsByAppIdAndType(appInfo.appId, SE.TYPE_UICC, null);
+    this._closeAllChannelsByAppId(appInfo.appId, SE.TYPE_UICC, null);
     gMap.unregisterSecureElementTarget(target);
   },
 
   handleGetSEReadersRequest: function(msg) {
-    let promiseStatus = "Rejected";
+    // TODO: Bug 1118101 Get supported readerTypes based on the permissions
+    // available for the given.
     let seReaderTypes = this._getAvailableReaders();
+    gMap.registerSecureElementTarget(msg, seReaderTypes);
     let options = {
+      result: { readerTypes: seReaderTypes },
       metadata: msg.data
     };
-    if (seReaderTypes.length > 0) {
-      gMap.registerSecureElementTarget(msg, seReaderTypes);
-      // Add the result
-      options.result = {readerTypes: seReaderTypes};
-      promiseStatus = "Resolved";
-    }
-    msg.target.sendAsyncMessage(msg.name + promiseStatus, options);
-  },
-
-  handleOpenSessionRequest: function(msg) {
-    let promiseStatus = "Rejected";
-    let options = {
-      metadata: msg.data
-    };
-    // Check if the type is already a supported one
-    if (gMap.isSupportedReaderType(msg.data)) {
-      promiseStatus = "Resolved";
-      // Add the result
-      options.result = { sessionToken: gMap.addSession(msg.data) };
-    }
-    msg.target.sendAsyncMessage(msg.name + promiseStatus, options);
+    msg.target.sendAsyncMessage(msg.name + "Resolved", options);
   },
 
   handleRequest: function(msg) {
@@ -799,14 +582,9 @@ SecureElementManager.prototype = {
       case "SE:GetSEReaders":
         this.handleGetSEReadersRequest(msg);
         break;
-      case "SE:OpenSession":
-        this.handleOpenSessionRequest(msg);
-        break;
       case "SE:OpenChannel":
       case "SE:CloseChannel":
       case "SE:TransmitAPDU":
-      case "SE:CloseAllBySession":
-      case "SE:CloseAllByReader":
         this.handleRequest(msg);
         break;
     }
