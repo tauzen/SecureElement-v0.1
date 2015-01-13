@@ -126,8 +126,7 @@ SEReader.prototype = {
       let chromeObj = new SESession();
       chromeObj.initialize(this._window, this);
       let contentObj = this._window.SESession._create(this._window, chromeObj);
-
-      this._sessions.push(chromeObj);
+      this._sessions.push(contentObj);
       PromiseHelpers.takePromiseResolver(aResolverId).resolve(contentObj);
     });
   },
@@ -172,7 +171,7 @@ SESession.prototype = {
 
   _isClosed: false,
 
-  reader: null,
+  _reader: null,
 
   classID: Components.ID("{2b1809f8-17bd-4947-abd7-bdef1498561c}"),
   contractID: "@mozilla.org/secureelement/session;1",
@@ -200,7 +199,7 @@ SESession.prototype = {
 
   initialize: function initialize(win, readerCtx) {
     this._window = win;
-    this.reader = readerCtx;
+    this._reader = readerCtx;
   },
 
   openLogicalChannel: function openLogicalChannel(aid) {
@@ -252,13 +251,17 @@ SESession.prototype = {
         self._isClosed = true;
         self._channels = [];
         // Notify parent of this session instance's closure
-        self.reader.onSessionClose(self);
+        self._reader.onSessionClose(self.__DOM_IMPL__);
         resolver.resolve();
       }, function rejected(reason) {
         resolver.reject(new Error(SE.ERROR_BADSTATE +
           " Unable to close all channels associated with this session"));
       });
     });
+  },
+
+  get reader() {
+    return this._reader.__DOM_IMPL__;
   },
 
   get isClosed() {
@@ -284,7 +287,7 @@ SEChannel.prototype = {
 
   _isClosed: false,
 
-  session: null,
+  _session: null,
 
   openResponse: [],
 
@@ -305,7 +308,7 @@ SEChannel.prototype = {
   onClose: function onClose() {
     this.isClosed = true;
     // Notify the parent
-    this.session.onChannelClose(this);
+    this._session.onChannelClose(this.__DOM_IMPL__);
   },
 
   initialize: function initialize(win, channelToken, isBasicChannel,
@@ -315,7 +318,7 @@ SEChannel.prototype = {
     // instance of the object
     this._channelToken = channelToken;
     // Update 'session' obj
-    this.session = sessionCtx;
+    this._session = sessionCtx;
     this.openResponse = Cu.cloneInto(new Uint8Array(openResponse), win);
     this.type = isBasicChannel ? "basic" : "logical";
   },
@@ -398,6 +401,10 @@ SEChannel.prototype = {
     });
   },
 
+  get session() {
+    return this._session.__DOM_IMPL__;
+  },
+
   get isClosed() {
     return this._isClosed;
   },
@@ -453,7 +460,7 @@ SEResponse.prototype = {
 
   data: null,
 
-  channel: null,
+  _channel: null,
 
   classID: Components.ID("{58bc6c7b-686c-47cc-8867-578a6ed23f4e}"),
   contractID: "@mozilla.org/secureelement/response;1",
@@ -465,7 +472,11 @@ SEResponse.prototype = {
     this.sw2 = sw2;
     this.data = response ? response.slice(0) : null;
     // Update the channel obj
-    this.channel = channelCtx;
+    this._channel = channelCtx;
+  },
+
+  get channel() {
+    return this._channel.__DOM_IMPL__;
   }
 };
 
@@ -565,11 +576,11 @@ SEManager.prototype = {
                              result.isBasicChannel,
                              result.openResponse,
                              context);
+        contentObj = this._window.SEChannel._create(this._window, chromeObj);
         if (context) {
           // Notify context's handler with SEChannel instance
-          context.onChannelOpen(chromeObj);
+          context.onChannelOpen(contentObj);
         }
-        contentObj = this._window.SEChannel._create(this._window, chromeObj);
         resolver.resolve(contentObj);
         break;
       case "SE:TransmitAPDUResolved":
