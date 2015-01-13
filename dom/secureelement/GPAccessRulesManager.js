@@ -172,7 +172,7 @@ GPAccessRulesManager.prototype = {
 
     let apdu = this._bytesToAPDU(bytes);
     return new Promise((resolve, reject) => {
-      UiccConnector.exchangeAPDU(SIM_SLOT, this.channel && 0xFF,
+      UiccConnector.exchangeAPDU(SIM_SLOT, this.channel, apdu.cla,
         apdu.ins, apdu.p1, apdu.p2, apdu.data, apdu.le,
         {
           notifyExchangeAPDUResponse: (sw1, sw2, data) => {
