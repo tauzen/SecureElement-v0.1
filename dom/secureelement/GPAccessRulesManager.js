@@ -7,7 +7,7 @@
 "use strict";
 
 /* globals Components, dump, XPCOMUtils, Promise, iccProvider, Task,
-   SEUtils */
+   SEUtils, libcutils, UiccConnector */
 
 let DEBUG = true;
 function debug(msg) {
@@ -22,13 +22,16 @@ const Cu = Components.utils;
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 Cu.import("resource://gre/modules/Promise.jsm");
 Cu.import("resource://gre/modules/Task.jsm");
+Cu.import("resource://gre/modules/systemlibs.js");
 
-XPCOMUtils.defineLazyServiceGetter(this, "iccProvider",
-                                   "@mozilla.org/ril/content-helper;1",
-                                   "nsIIccProvider");
+XPCOMUtils.defineLazyServiceGetter(this, "UiccConnector",
+                                   "@mozilla.org/secureelement/connector;1",
+                                   "nsISecureElementConnector");
 
 XPCOMUtils.defineLazyModuleGetter(this, "SEUtils",
                                   "resource://gre/modules/SEUtils.jsm");
+
+const SIM_SLOT = libcutils.property_get("ro.moz.se.def_client_id", "0");
 
 /*
  * Based on [1] - "GlobalPlatform Device Technology
@@ -48,9 +51,6 @@ GPAccessRulesManager.prototype = {
 
   SELECT_BY_DF: [0x00, 0xA4, 0x00, 0x04, 0x02],
   SELECT_ODF: [0x00, 0xA4, 0x00, 0x04, 0x02, 0x50, 0x31],
-
-  // TODO agree with Sid on simSlot source
-  simSlot: 0,
 
   // Non-null if there is a channel open
   channel: null,
@@ -121,10 +121,10 @@ GPAccessRulesManager.prototype = {
     }
 
     return new Promise((resolve, reject) => {
-      iccProvider.iccOpenChannel(this.simSlot, this.PKCS_AID, {
-        notifyOpenChannelSuccess: (channel) => {
+      UiccConnector.openChannel(SIM_SLOT, this.PKCS_AID, {
+        notifyOpenChannelSuccess: (channel, openResponse) => {
           debug("_openChannel/notifyOpenChannelSuccess: Channel " + channel +
-                " opened");
+                " opened, open response: " + openResponse);
           this.channel = channel;
           resolve();
         },
@@ -144,7 +144,7 @@ GPAccessRulesManager.prototype = {
     }
 
     return new Promise((resolve, reject) => {
-      iccProvider.iccCloseChannel(this.simSlot, this.channel, {
+      UiccConnector.closeChannel(SIM_SLOT, this.channel, {
         notifyCloseChannelSuccess: () => {
           debug("_closeChannel/notifyCloseChannelSuccess: chanel " +
                 this.channel + " closed");
@@ -168,26 +168,16 @@ GPAccessRulesManager.prototype = {
 
     let apdu = this._bytesToAPDU(bytes);
     return new Promise((resolve, reject) => {
-      iccProvider.iccExchangeAPDU(this.simSlot, this.channel, apdu.cla,
-        apdu.ins, apdu.p1, apdu.p2, apdu.p3, apdu.data,
+      UiccConnector.exchangeAPDU(SIM_SLOT, this.channel, apdu.cla,
+        apdu.ins, apdu.p1, apdu.p2, apdu.data, apdu.le,
         {
           notifyExchangeAPDUResponse: (sw1, sw2, data) => {
             debug("_exchangeAPDU/notifyExchangeAPDUResponse");
             debug("APDU response is " + sw1.toString(16) + sw2.toString(16) +
                   " data: " + data);
-            // consider moving this to RILContentHelper/SIMIO connector
-            // IMPORTANT this step is missing in tests, on the device each
-            // time we send APDU with data we get sw1 0x61 and we need to read
-            // the response using GET RESPONSE command
-            if (sw1 === 0x61) {
-              debug("requesting more data");
-              this._exchangeAPDU(this.GET_RESPONSE).then(resolve);
-              return;
-            }
 
             if (sw1 !== 0x90 || sw2 !== 0x00) {
-              debug("rejecting, APDU response is " +
-                    sw1.toString(16) + sw2.toString(16));
+              debug("rejecting APDU response");
               reject();
               return;
             }
@@ -268,8 +258,8 @@ GPAccessRulesManager.prototype = {
     }
 
     let ACMain_DF = gpdRecords[0][0xA1][0x30][0x30][0x04];
-    let SELECT_ACMAIN = this.SELECT_BY_DF.concat(ACMain_DF);
-    return this._selectAndRead(SELECT_ACMAIN);
+    let selectACMain = this.SELECT_BY_DF.concat(ACMain_DF);
+    return this._selectAndRead(selectACMain);
   },
 
   _readACRules: function _readACRules(acMainFile) {
@@ -428,7 +418,8 @@ GPAccessRulesManager.prototype = {
       ins: arr[1] & 0xFF,
       p1: arr[2] & 0xFF,
       p2: arr[3] & 0xFF,
-      p3: arr[4] & 0xFF
+      p3: arr[4] & 0xFF,
+      le: 0
     };
 
     let data = (apdu.p3 > 0) ? (arr.slice(5)) : [];
