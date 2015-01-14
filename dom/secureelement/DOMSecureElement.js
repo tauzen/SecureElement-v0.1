@@ -108,8 +108,8 @@ SEReader.prototype = {
   QueryInterface: XPCOMUtils.generateQI([]),
 
   // Chrome-only function
-  onSessionClose: function onSessionClose(sessionContext) {
-    let index = this._sessions.indexOf(sessionContext);
+  onSessionClose: function onSessionClose(sessionCtx) {
+    let index = this._sessions.indexOf(sessionCtx);
     if (index != -1) {
       this._sessions.splice(index, 1);
     }
@@ -133,9 +133,11 @@ SEReader.prototype = {
   closeAll: function closeAll() {
     return PromiseHelpers.createSEPromise((aResolverId) => {
       let promises = [];
-      // Notify all children
+      // Close all children
       for (let session of this._sessions) {
-        promises.push(session.closeAll());
+        if (!session.isClosed) {
+          promises.push(session.closeAll());
+        }
       }
       let resolver = PromiseHelpers.takePromiseResolver(aResolverId);
       // Wait till all the promises are resolved
@@ -185,13 +187,13 @@ SESession.prototype = {
   },
 
   // Chrome-only function
-  onChannelOpen: function onChannelOpen(channelContext) {
-    this._channels.push(channelContext);
+  onChannelOpen: function onChannelOpen(channelCtx) {
+    this._channels.push(channelCtx);
   },
 
   // Chrome-only function
-  onChannelClose: function onChannelClose(channelContext) {
-    let index = this._channels.indexOf(channelContext);
+  onChannelClose: function onChannelClose(channelCtx) {
+    let index = this._channels.indexOf(channelCtx);
     if (index != -1) {
       this._channels.splice(index, 1);
     }
@@ -241,15 +243,15 @@ SESession.prototype = {
 
     return PromiseHelpers.createSEPromise((aResolverId) => {
       let promises = [];
-      // Notify all children
+      // Close all children
       for (let channel of this._channels) {
-        promises.push(channel.close());
+        if (!channel.isClosed) {
+          promises.push(channel.close());
+        }
       }
       let resolver = PromiseHelpers.takePromiseResolver(aResolverId);
       // Wait till all the promises are resolved
       Promise.all([promises]).then(function resolved() {
-        // Since all its children (channels) are closed,
-        // update self 'isClosed = true' and reset all the channel instances
         this._isClosed = true;
         this._channels = [];
         // Notify parent of this session instance's closure, so that its
@@ -363,7 +365,7 @@ SEChannel.prototype = {
       /**
        * @params for 'SE:TransmitAPDU'
        *
-       * resolverId  : ID that identifies this IPC request.
+       * resolverId  : Id that identifies this IPC request.
        * apdu        : Object that wraps SECommand parameters
        * type        : Reader type ('uicc' / 'eSE')
        * channelToken: Token that identifies the current channel over which
@@ -387,7 +389,7 @@ SEChannel.prototype = {
       /**
        * @params for 'SE:CloseChannel'
        *
-       * resolverId  : ID that identifies this IPC request.
+       * resolverId  : Id that identifies this IPC request.
        * type        : Reader type ('uicc' / 'eSE')
        * channelToken: Token that identifies the current channel over which
                        'c-apdu' is being sent.
@@ -532,7 +534,7 @@ SEManager.prototype = {
       /**
        * @params for 'SE:GetSEReaders'
        *
-       * resolverId  : ID that identifies this IPC request.
+       * resolverId  : Id that identifies this IPC request.
        * appId       : Current appId obtained from 'Principal' obj
        */
       cpmm.sendAsyncMessage("SE:GetSEReaders", {

@@ -53,6 +53,10 @@ const UICCCONNECTOR_CID =
   Components.ID("{8e040e5d-c8c3-4c1b-ac82-c00d25d8c4a4}");
 const NS_XPCOM_SHUTDOWN_OBSERVER_ID = "xpcom-shutdown";
 
+// TODO: Bug 1118099  - Add multi-sim support.
+// In the Multi-sim, there is more than one client.
+// For now, use default clientID as 0. Ideally, SE parent process would like to
+// know which clients (uicc slot) are connected to CLF over SWP interface.
 const PREFERRED_UICC_CLIENTID =
   libcutils.property_get("ro.moz.se.def_client_id", "0");
 

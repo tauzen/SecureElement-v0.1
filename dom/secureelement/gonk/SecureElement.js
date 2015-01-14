@@ -68,10 +68,6 @@ XPCOMUtils.defineLazyServiceGetter(this, "UUIDGenerator",
 XPCOMUtils.defineLazyModuleGetter(this, "SEUtils",
                                   "resource://gre/modules/SEUtils.jsm");
 
-// TODO: Bug 1118099  - Add multi-sim support.
-// In the Multi-sim, there is more than one client.
-// For now, use default clientID as 0. Ideally, SE parent process would like to
-// know which clients (uicc slot) are connected to CLF over SWP interface.
 const PREFERRED_UICC_CLIENTID =
   libcutils.property_get("ro.moz.se.def_client_id", "0");
 
@@ -90,8 +86,6 @@ function getConnector(type) {
  * 'gMap' is a nested dictionary object that manages all the information
  * pertaining to channels for a given application (appId). It manages the
  * relationship between given application and its opened channels.
- * Note that an application (appId / content) can open multiple channels with a
- * secure element
  */
 XPCOMUtils.defineLazyGetter(this, "gMap", function() {
   return {
@@ -130,7 +124,6 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
         debug("Already registered SE target! appId:" + appId);
         return;
       }
-
       this.appInfoMap[appId] = {
         target: message.target,
         readerTypes: readers,
@@ -143,7 +136,6 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
     // UnRegister the SecureElement target.
     unregisterSecureElementTarget: function(target) {
       let appId = this.getAppIdByTarget(target);
-
       if (appId) {
         debug("Unregistered SE Target for AppId : " + appId);
         delete this.appInfoMap[appId];
@@ -216,7 +208,6 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
       if (!appId || !this.appInfoMap[appId]) {
         return false;
       }
-
       if (chToken &&
           !this.appInfoMap[appId].channels[chToken]) {
         return false;
@@ -239,19 +230,17 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
       let appId = Object.keys(this.appInfoMap).find((id) => {
         return this.appInfoMap[id] && this.appInfoMap[id].target === target;
       });
+
       return appId;
     },
   };
 });
 
 /**
- * 'SecureElementManager' is the main object that interfaces with
- * child process / content. It is also the 'message manager' of the module.
- * It interacts with other objects such as 'gMap' & 'Connector instances
- * (UiccConnector, eSEConnector)' to perform various operations.
- * It mainly interacts with 'gMap' to query the state of Channels,
- * while it interacts with 'Connector instances' to perform low
- * level SE-related (open,close,transmit) I/O operations.
+ * 'SecureElementManager' is the main object that handles IPC messages from
+ * child process. It interacts with other objects such as 'gMap' & 'Connector
+ * instances (UiccConnector, eSEConnector)' to perform various
+ * SE-related (open,close,transmit) operations.
  */
 function SecureElementManager() {
   this._registerMessageListeners();
@@ -325,6 +314,7 @@ SecureElementManager.prototype = {
     }
 
     let connector = getConnector(type);
+    // Counter to keep track of callbacks received from 'Connector'.
     let cbCnt = 0;
     channels.forEach((channel) => {
       debug("Attempting to Close Channel # : " + channel);
@@ -459,15 +449,6 @@ SecureElementManager.prototype = {
     });
   },
 
-  handleChildProcessShutdown: function(target) {
-    let appId = gMap.getAppIdByTarget(target);
-    if (!appId) {
-      return;
-    }
-    this._closeAllChannelsByAppId(appId, SE.TYPE_UICC, null);
-    gMap.unregisterSecureElementTarget(target);
-  },
-
   handleGetSEReadersRequest: function(msg) {
     // TODO: Bug 1118101 Get supported readerTypes based on the permissions
     // available for the given.
@@ -490,13 +471,22 @@ SecureElementManager.prototype = {
     });
   },
 
+  handleChildProcessShutdown: function(target) {
+    let appId = gMap.getAppIdByTarget(target);
+    if (!appId) {
+      return;
+    }
+    this._closeAllChannelsByAppId(appId, SE.TYPE_UICC, null);
+    gMap.unregisterSecureElementTarget(target);
+  },
+
   /**
    * nsIMessageListener interface methods.
    */
 
   receiveMessage: function(msg) {
-    DEBUG && debug("Received '" + msg.name + "' message from content process" +
-                   ": " + JSON.stringify(msg.data));
+    debug("Received '" + msg.name + "' message from content process" +
+          ": " + JSON.stringify(msg.data));
     if (msg.name == "child-process-shutdown") {
       // By the time we receive child-process-shutdown, the child process has
       // already forgotten its permissions so we need to unregister the target
