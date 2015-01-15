@@ -134,7 +134,7 @@ ACEService.prototype = {
   _ruleManager: null,
 
   isAccessAllowed: function isAccessAllowed(localId, seName, aid) {
-    let manifestURL = DOMApplicationRegistry.getManifestUrlByLocalId(localId);
+    let manifestURL = DOMApplicationRegistry.getManifestURLByLocalId(localId);
     if (manifestURL) {
       Promise.resolve(true);
     }
@@ -189,7 +189,7 @@ ACEService.prototype = {
   },
 
   classID: Components.ID("{882a7463-2ca7-4d61-a89a-10eb6fd70478}"),
-  QueryInterface: XPCOMUtils.generateQI([Ci.nsIAccessRulesManager])
+  QueryInterface: XPCOMUtils.generateQI([Ci.nsIAccessControlEnforcer])
 };
 
 this.NSGetFactory = XPCOMUtils.generateNSGetFactory([ACEService]);
