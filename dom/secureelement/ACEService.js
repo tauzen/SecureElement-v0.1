@@ -133,7 +133,12 @@ function ACEService() {
 ACEService.prototype = {
   _ruleManager: null,
 
-  isAccessAllowed: function isAccessAllowed(manifestURL, aid) {
+  isAccessAllowed: function isAccessAllowed(localId, seName, aid) {
+    let manifestURL = DOMApplicationRegistry.getManifestUrlByLocalId(localId);
+    if (manifestURL) {
+      Promise.resolve(true);
+    }
+
     let promiseInit = (resolve, reject) => {
       debug("isAccessAllowed for " + manifestURL + " to " + aid);
 

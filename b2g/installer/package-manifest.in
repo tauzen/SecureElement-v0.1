@@ -527,6 +527,8 @@
 @BINPATH@/components/NfcContentHelper.js
 #endif
 #ifdef MOZ_SECUREELEMENT
+@BINPATH@/components/ACEService.manifest
+@BINPATH@/components/ACEService.js
 @BINPATH@/components/DOMSecureElement.manifest
 @BINPATH@/components/DOMSecureElement.js
 @BINPATH@/components/GPAccessRulesManager.manifest

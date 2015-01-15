@@ -10,12 +10,5 @@
 interface nsIAccessControlEnforcer : nsISupports
 {
   jsval isAccessAllowed(in unsigned long localId, in DOMString seName,
-                        in Uint8Array? aid);
-
-  jsval isAPDUAllowed(in unsigned long localId, in DOMString seName,
-                      in Uint8Array? apdu);
-
-  jsval isEventForwardAllowed(in unsigned long localId, in DOMString seName,
-                              in Uint8Array? aid);
-
+                        in Uint8Array aid);
 };
