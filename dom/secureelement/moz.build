@@ -32,7 +32,6 @@ if CONFIG['MOZ_WIDGET_TOOLKIT'] == 'gonk' and CONFIG['MOZ_SECUREELEMENT']:
         'gonk/nsISecureElementConnector.idl',
     ]
     EXTRA_JS_MODULES += [
-        'ACEService.jsm',
         'gonk/se_consts.js',
         'SEUtils.jsm'
     ]
