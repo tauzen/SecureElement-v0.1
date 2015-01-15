@@ -154,7 +154,7 @@ SEReader.prototype = {
   get isSEPresent() {
     // TODO: Bug 1119152 - Implement new idl with interfaces to detect
     //                     secureelement state changes.
-    cpmm.sendAsyncMessage("ACEService:ReadRules", {
+    cpmm.sendAsyncMessage("SE:ACETest", {
       requestId: "test",
       appId: this._window.document.nodePrincipal.appId
     });
@@ -518,7 +518,9 @@ SEManager.prototype = {
                       "SE:OpenChannelRejected",
                       "SE:CloseChannelRejected",
                       "SE:TransmitAPDURejected",
-                      "ACEService:ReadRules:Return"];
+                      "ACEService:ReadRules:Return",
+                      "SE:ACETest:Resolved",
+                      "SE:ACETest:Rejected"];
 
     this.initDOMRequestHelper(win, messages);
   },
@@ -550,11 +552,18 @@ SEManager.prototype = {
   },
 
   receiveMessage: function receiveMessage(message) {
+    debug("receiveMessage(): " + message.name);
     let result = message.data.result;
     let data = message.data.metadata;
 
     if (message.name === "ACEService:ReadRules:Return") {
       debug("Got rules: " + JSON.stringify(message.json.rules, 0, 2));
+      return;
+    }
+
+    if (message.name === "SE:ACETest:Resolved" ||
+        message.name === "SE:ACETest:Rejected") {
+      debug("result: " + result + ", data: " + JSON.stringify(data));
       return;
     }
 
@@ -570,7 +579,6 @@ SEManager.prototype = {
       context = promiseResolver.context;
     }
 
-    debug("receiveMessage(): " + message.name);
     switch (message.name) {
       case "SE:GetSEReadersResolved":
         let readers = [];
