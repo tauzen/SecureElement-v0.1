@@ -527,7 +527,7 @@ SecureElementManager.prototype = {
     let ace = Cc["@mozilla.org/secureelement/access-control/ace;1"]
               .getService(Ci.nsIAccessControlEnforcer);
 
-    ace.isAccessAllowed(msg.appId, "uicc", new Uint8Array())
+    ace.isAccessAllowed(msg.data.appId, "uicc", new Uint8Array())
     .then((result) => {
       debug("got response from ACE: " + result);
       let options = { result: result, metadata: msg.data };

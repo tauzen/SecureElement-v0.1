@@ -123,8 +123,9 @@ GPAccessDecision.prototype = {
 };
 
 function ACEService() {
-  this._ruleManager = Cc["@mozilla.org/gp-access-rules-manager;1"]
-                        .getService(Ci.nsIAccessRulesManager);
+  this._ruleManager =
+    Cc["@mozilla.org/secureelement/access-control/rules-manager/gp;1"]
+    .getService(Ci.nsIAccessRulesManager);
   this._ruleManager.init().then(() => {
     debug("Rule Manager initialised");
   });

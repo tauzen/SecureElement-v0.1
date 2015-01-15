@@ -8,27 +8,25 @@
 XPIDL_MODULE = 'dom_secureelement'
 
 if CONFIG['MOZ_SECUREELEMENT']:
-    XPIDL_SOURCES += [
-        'nsIAccessControlEnforcer.idl',
-        'nsIAccessRulesManager.idl',
-    ]
     EXTRA_COMPONENTS += [
-        'ACEService.js',
-        'ACEService.manifest',
         'DOMSecureElement.js',
         'DOMSecureElement.manifest',
-        'GPAccessRulesManager.js',
-        'GPAccessRulesManager.manifest',
     ]
 
 if CONFIG['MOZ_WIDGET_TOOLKIT'] == 'gonk' and CONFIG['MOZ_SECUREELEMENT']:
     EXTRA_COMPONENTS += [
+        'gonk/ACEService.js',
+        'gonk/ACEService.manifest',
+        'gonk/GPAccessRulesManager.js',
+        'gonk/GPAccessRulesManager.manifest',
         'gonk/SecureElement.js',
         'gonk/SecureElement.manifest',
         'gonk/UiccConnector.js',
         'gonk/UiccConnector.manifest',
     ]
     XPIDL_SOURCES += [
+        'gonk/nsIAccessControlEnforcer.idl',
+        'gonk/nsIAccessRulesManager.idl',
         'gonk/nsISecureElementConnector.idl',
     ]
     EXTRA_JS_MODULES += [
