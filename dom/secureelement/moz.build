@@ -9,7 +9,7 @@ XPIDL_MODULE = 'dom_secureelement'
 
 if CONFIG['MOZ_SECUREELEMENT']:
     XPIDL_SOURCES += [
-        'nsIAccessControlEnforcer.idl'
+        'nsIAccessControlEnforcer.idl',
         'nsIAccessRulesManager.idl',
     ]
     EXTRA_COMPONENTS += [

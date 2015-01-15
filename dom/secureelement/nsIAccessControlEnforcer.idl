@@ -6,9 +6,9 @@
 
 #include "nsISupports.idl"
 
-[scriptable, uuid(04c247ac-1d7c-403b-91e5-de3f1c9c1c93)]
+[scriptable, uuid(68c358a6-441c-4823-b8c7-93b9dda376ce)]
 interface nsIAccessControlEnforcer : nsISupports
 {
   jsval isAccessAllowed(in unsigned long localId, in DOMString seName,
-                        in Uint8Array aid);
+                        in jsval aid);
 };
