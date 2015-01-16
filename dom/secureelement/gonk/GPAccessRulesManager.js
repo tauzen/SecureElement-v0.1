@@ -31,12 +31,18 @@ XPCOMUtils.defineLazyServiceGetter(this, "UiccConnector",
 XPCOMUtils.defineLazyModuleGetter(this, "SEUtils",
                                   "resource://gre/modules/SEUtils.jsm");
 
+// TODO remove once UiccConnector will be updated to manage the sim slot
 const SIM_SLOT = libcutils.property_get("ro.moz.se.def_client_id", "0");
 
 /*
  * Based on [1] - "GlobalPlatform Device Technology
- * Secure Element Access Control Version 1.0", section #7:
- * "Structure of Access Rule Files (ARF)"
+ * Secure Element Access Control Version 1.0".
+ * GPAccessRulesManager reads access rules from SIM card file system
+ * as defined in section #7 of [1]: "Structure of Access Rule Files (ARF)".
+ * Rules retrieval from ARA-M applet is not implmented due to lack of
+ * commercial implemenations of ARA-M.
+ * @todo implement ARA-M support according to section #4 of [1]
+ * @todo const used tags
  */
 function GPAccessRulesManager() {}
 
@@ -44,11 +50,11 @@ GPAccessRulesManager.prototype = {
   // source [1] section 7.1.3 PKCS#15 Selection
   PKCS_AID: "a000000063504b43532d3135",
 
-  // TODO convert to objects and helper function
-  // once nsIIcProvider will be landed
+  // APDUs (ISO 7816-4) for accessing rules on SIM card file system
+  // see for more details: http://www.cardwerk.com/smartcards/
+  // smartcard_standard_ISO7816-4_6_basic_interindustry_commands.aspx
   READ_BINARY: [0x00, 0xB0, 0x00, 0x00],
   GET_RESPONSE:  [0x00, 0xC0, 0x00, 0x00],
-
   SELECT_BY_DF: [0x00, 0xA4, 0x00, 0x04, 0x02],
   SELECT_ODF: [0x00, 0xA4, 0x00, 0x04, 0x02, 0x50, 0x31],
 

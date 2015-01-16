@@ -85,7 +85,7 @@ GPAccessDecision.prototype = {
     return false;
   },
 
-  _applicationMatches: function applicationMatches(appArray) {
+  _applicationMatches: function _applicationMatches(appArray) {
     if (!Array.isArray(appArray)) {
       return false;
     }
@@ -95,27 +95,27 @@ GPAccessDecision.prototype = {
     }));
   },
 
-  _oneAppletAnyApp: function(rule) {
+  _oneAppletAnyApp: function _oneAppletAnyApp(rule) {
     return SEUtils.arraysEqual(rule.applet, this.aid) &&
            Array.isArray(rule.application);
   },
 
-  _oneAppletOneApp: function(rule) {
+  _oneAppletOneApp: function _oneAppletOneApp(rule) {
     return SEUtils.arraysEqual(rule.applet, this.aid) &&
            this._applicationMatches(rule.application);
   },
 
-  _oneAppletAllApps: function(rule) {
+  _oneAppletAllApps: function _oneAppletAllApps(rule) {
     let appMatches = rule.application === "allowed-all" ||
                      rule.application === "denied-all";
     return SEUtils.arraysEqual(rule.applet, this.aid) && appMatches;
   },
 
-  _allAppletsOneApp: function(rule) {
+  _allAppletsOneApp: function _allAppletsOneApp(rule) {
     return rule.applet === "all" && this._applicationMatches(rule.application);
   },
 
-  _allAppletsAllApps: function(rule) {
+  _allAppletsAllApps: function _allAppletsAllApps(rule) {
     let appMatches = rule.application === "allowed-all" ||
                      rule.application === "denied-all";
     return rule.applet === "all" && appMatches;
@@ -145,7 +145,7 @@ ACEService.prototype = {
 
       this._getDevCertHashForApp(manifestURL).then((certHash) => {
         if (!certHash) {
-          debug("App " + manifestURL + " tried to access SE, but no developer" +
+          debug("App " + manifestURL + " tried to access SE, but no developer " +
               "certificate present");
           return reject(Error("No developer certificate found."));
         }
@@ -163,14 +163,19 @@ ACEService.prototype = {
     return new Promise(promiseInit);
   },
 
-  /*
-    TODO: This method will be implemented once it'll be decided in Bug 973823
-          how the dev cert hash will be supplied by the developer.
-  */
+  // TODO finish implementation according to Bug 973823 outcome
   _getDevCertHashForApp: function getDevCertHashForApp(manifestURL) {
     return DOMApplicationRegistry.getManifestFor(manifestURL)
     .then((manifest) => {
       DEBUG && debug("manifest retrieved: " + JSON.stringify(manifest));
+
+      // TODO verify if app is signed by marketplace
+      // TODO retrieve the cert from the app
+      // TODO verify GUID signature
+      // TODO compute the hash of the cert and possibly store it for future use
+
+      // right now we have the cert hash included in manifest file
+      // TODO remove this once we have fixed all the todos
       return manifest.secure_element_sig || "";
     })
     .catch((error) => {
