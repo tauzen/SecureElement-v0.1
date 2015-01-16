@@ -1,0 +1,14 @@
+/* This Source Code Form is subject to the terms of the Mozilla Public
+ * License, v. 2.0. If a copy of the MPL was not distributed with this file,
+ * You can obtain one at http://mozilla.org/MPL/2.0/. */
+
+/* Copyright © 2015, Deutsche Telekom, Inc. */
+
+#include "nsISupports.idl"
+
+[scriptable, uuid(68c358a6-441c-4823-b8c7-93b9dda376ce)]
+interface nsIAccessControlEnforcer : nsISupports
+{
+  jsval isAccessAllowed(in unsigned long localId, in DOMString seName,
+                        in jsval aid);
+};
