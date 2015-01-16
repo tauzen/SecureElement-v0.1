@@ -513,10 +513,7 @@ SEManager.prototype = {
                       "SE:GetSEReadersRejected",
                       "SE:OpenChannelRejected",
                       "SE:CloseChannelRejected",
-                      "SE:TransmitAPDURejected",
-                      "ACEService:ReadRules:Return",
-                      "SE:ACETest:Resolved",
-                      "SE:ACETest:Rejected"];
+                      "SE:TransmitAPDURejected"];
 
     this.initDOMRequestHelper(win, messages);
   },
