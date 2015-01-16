@@ -136,33 +136,27 @@ ACEService.prototype = {
 
   isAccessAllowed: function isAccessAllowed(localId, seName, aid) {
     let manifestURL = DOMApplicationRegistry.getManifestURLByLocalId(localId);
-    if (manifestURL) {
-      Promise.resolve(true);
+    if (!manifestURL) {
+      return Promise.reject("Missing manifest for app: " + localId);
     }
 
     let promiseInit = (resolve, reject) => {
       debug("isAccessAllowed for " + manifestURL + " to " + aid);
 
-      let app = DOMApplicationRegistry.getAppByManifestURL(manifestURL);
-      if (!app) {
-        debug("No app found for " + manifestURL);
-        return reject(Error("No app found for manifest " + manifestURL));
-      }
-      DEBUG && debug("App is: " + JSON.stringify(app));
-
-      let certHash = this._getDevCertHashForApp(app);
-      if (!certHash) {
-        debug("App " + manifestURL + " tried to access SE, but no developer" +
+      this._getDevCertHashForApp(manifestURL).then((certHash) => {
+        if (!certHash) {
+          debug("App " + manifestURL + " tried to access SE, but no developer" +
               "certificate present");
-        return reject(Error("No developer certificate found."));
-      }
+          return reject(Error("No developer certificate found."));
+        }
 
-      this._ruleManager.getAccessRules()
-      .then((rules) => {
-        let decision = new GPAccessDecision(rules,
-          SEUtils.hexStringToByteArray(certHash), aid);
+        this._ruleManager.getAccessRules()
+        .then((rules) => {
+          let decision = new GPAccessDecision(rules,
+            SEUtils.hexStringToByteArray(certHash), aid);
 
-        resolve(decision.isAccessAllowed());
+          resolve(decision.isAccessAllowed());
+        });
       });
     };
 
@@ -173,20 +167,16 @@ ACEService.prototype = {
     TODO: This method will be implemented once it'll be decided in Bug 973823
           how the dev cert hash will be supplied by the developer.
   */
-  _getDevCertHashForApp: function getDevCertHashForApp(app) {
-    if (app.origin === "app://ace.gaiamobile.org") {
-      debug("Setting test dev cert hash A683...2128");
-      return "A683A44507D67C5A58D23BCF2DCBABED9AEC2128";
-    } else if (app.origin === "app://ace2.gaiamobile.org") {
-      debug("Setting test dev cert hash A683...2129");
-      return "A683A44507D67C5A58D23BCF2DCBABED9AEC2129";
-    } else if (app.dev_cert_hash) {
-      debug("Setting dev cert hash to " + app.dev_cert_hash);
-      return app.dev_cert_hash;
-    } else {
-      debug("Not setting test dev cert hash");
-      return null;
-    }
+  _getDevCertHashForApp: function getDevCertHashForApp(manifestURL) {
+    return DOMApplicationRegistry.getManifestFor(manifestURL)
+    .then((manifest) => {
+      DEBUG && debug("manifest retrieved: " + JSON.stringify(manifest));
+      return manifest.secure_element_sig || "";
+    })
+    .catch((error) => {
+      debug("Not able to retrieve cert hash: " + error);
+      return "";
+    });
   },
 
   classID: Components.ID("{882a7463-2ca7-4d61-a89a-10eb6fd70478}"),
