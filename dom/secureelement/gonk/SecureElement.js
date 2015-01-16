@@ -20,7 +20,7 @@
 /* globals dump, Components, XPCOMUtils, SE, Services, UiccConnector,
    SEUtils, ppmm, gMap, libcutils, UUIDGenerator */
 
-const { interfaces: Ci, utils: Cu } = Components;
+const { classes: Cc, interfaces: Ci, utils: Cu } = Components;
 
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 Cu.import("resource://gre/modules/Services.jsm");
@@ -251,6 +251,10 @@ function SecureElementManager() {
   this.handlers["SE:TransmitAPDU"] = this.handleTransmit;
 
   Services.obs.addObserver(this, NS_XPCOM_SHUTDOWN_OBSERVER_ID, false);
+
+  this.accessControlEnforcer =
+    Cc["@mozilla.org/secureelement/access-control/ace;1"]
+    .getService(Ci.nsIAccessControlEnforcer);
 }
 
 SecureElementManager.prototype = {
@@ -266,6 +270,7 @@ SecureElementManager.prototype = {
   }),
 
   handlers: [],
+  accessControlEnforcer: null,
 
   _shutdown: function() {
     this.secureelement = null;
@@ -354,31 +359,46 @@ SecureElementManager.prototype = {
       return;
     }
 
-    // TODO: Bug 1118098  - Integrate with ACE module
-    let connector = getConnector(msg.type);
-    connector.openChannel(PREFERRED_UICC_CLIENTID,
-      SEUtils.byteArrayToHexString(msg.aid), {
-
-      notifyOpenChannelSuccess: (channel, openResponse) => {
-        // Add the new 'channel' to the map upon success
-        let channelToken = gMap.addChannel(channel, msg);
+    this.accessControlEnforcer.isAccessAllowed(msg.appId, msg.type, msg.aid)
+    .then((allowed) => {
+      if (!allowed) {
         if (callback) {
-          callback({
-            error: SE.ERROR_NONE,
-            channelToken: channelToken,
-            isBasicChannel: (channel === SE.BASIC_CHANNEL),
-            openResponse: SEUtils.hexStringToByteArray(openResponse)
-          });
+          callback({ error: SE.ERROR_SECURITY });
         }
-      },
+        return;
+      }
 
-      notifyError: (reason) => {
-        debug("Failed to open the channel to AID : " +
-               SEUtils.byteArrayToHexString(msg.aid) +
-               ", Rejected with Reason : " + reason);
-        if (callback) {
-          callback({ error: SE.ERROR_GENERIC, reason: reason, response: [] });
+      let connector = getConnector(msg.type);
+      connector.openChannel(PREFERRED_UICC_CLIENTID,
+        SEUtils.byteArrayToHexString(msg.aid), {
+
+        notifyOpenChannelSuccess: (channel, openResponse) => {
+          // Add the new 'channel' to the map upon success
+          let channelToken = gMap.addChannel(channel, msg);
+          if (callback) {
+            callback({
+              error: SE.ERROR_NONE,
+              channelToken: channelToken,
+              isBasicChannel: (channel === SE.BASIC_CHANNEL),
+              openResponse: SEUtils.hexStringToByteArray(openResponse)
+            });
+          }
+        },
+
+        notifyError: (reason) => {
+          debug("Failed to open the channel to AID : " +
+                 SEUtils.byteArrayToHexString(msg.aid) +
+                 ", Rejected with Reason : " + reason);
+          if (callback) {
+            callback({ error: SE.ERROR_GENERIC, reason: reason, response: [] });
+          }
         }
+      });
+    })
+    .catch((error) => {
+      debug("Failed to get info from accessControlEnforcer " + error);
+      if (callback) {
+        callback({ error: SE.ERROR_SECURITY });
       }
     });
   },
