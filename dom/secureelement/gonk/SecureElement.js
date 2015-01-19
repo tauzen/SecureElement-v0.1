@@ -186,15 +186,8 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
     // Validates the given 'channelToken' by checking if it is a registered one
     // for the given (appId, channelToken)
     isValidChannelToken: function(appId, channelToken) {
-      if (!appId || !this.appInfoMap[appId]) {
-        return false;
-      }
-      if (channelToken &&
-          !this.appInfoMap[appId].channels[channelToken]) {
-        return false;
-      }
-
-      return true;
+      return (appId in this.appInfoMap) &&
+             (channelToken in this.appInfoMap[appId].channels);
     },
 
     // Get the 'channel' associated with (appId, channelToken)
