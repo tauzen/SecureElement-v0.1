@@ -46,28 +46,23 @@ interface nsISEChannelCallback : nsISupports
   void notifyError(in DOMString error);
 };
 
-[scriptable, uuid(f4b5712f-8aa2-4f97-ad89-5a376e867cef)]
+[scriptable, uuid(88e23684-0de3-4792-83a0-0eb67a6ca448)]
 interface nsISecureElementConnector : nsISupports
 {
    /**
     * Open a logical communication channel with the specific secure element type
     *
-    * @param clientId
-    *        ClientId on which the logical channel will be established.
     * @param aid
     *        Application Identifier of the Card Applet on the secure element.
     * @param callback
     *        callback to notify the result of the operation.
     */
-    void openChannel(in unsigned long clientId,
-                     in DOMString aid,
+    void openChannel(in DOMString aid,
                      in nsISEChannelCallback callback);
 
    /**
     * Exchanges APDU channel with the specific secure element type
     *
-    * @param clientId
-    *        ClientId on which the logical channel will be established.
     * @param channel
     *        Channel on which C-APDU to be transmitted.
     * @param cla
@@ -87,8 +82,7 @@ interface nsISecureElementConnector : nsISupports
     * @param callback
     *        callback to notify the result of the operation.
     */
-    void exchangeAPDU(in unsigned long clientId,
-                      in long channel,
+    void exchangeAPDU(in long channel,
                       in octet cla,
                       in octet ins,
                       in octet p1,
@@ -100,14 +94,11 @@ interface nsISecureElementConnector : nsISupports
    /**
     * Closes the logical communication channel to the specific secure element type
     *
-    * @param clientId
-    *        ClientId on which the logical channel will be established.
     * @param channel
     *        Channel to be closed.
     * @param callback
     *        callback to notify the result of the operation.
     */
-   void closeChannel(in unsigned long clientId,
-                     in long channel,
+   void closeChannel(in long channel,
                      in nsISEChannelCallback callback);
 };
