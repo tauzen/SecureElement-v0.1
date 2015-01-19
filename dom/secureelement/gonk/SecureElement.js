@@ -18,7 +18,7 @@
 "use strict";
 
 /* globals dump, Components, XPCOMUtils, SE, Services, UiccConnector,
-   SEUtils, ppmm, gMap, libcutils, UUIDGenerator */
+   SEUtils, ppmm, gMap, UUIDGenerator */
 
 const { interfaces: Ci, utils: Cu } = Components;
 
@@ -142,12 +142,11 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
 
     // Gets channel count associated with the 'appId'
     getChannelCount: function(appId) {
-      let appInfo = this.appInfoMap[appId];
-      if (!appInfo) {
+      if (!(appId in this.appInfoMap)) {
         debug("Unable to get channel count: " + appId);
         return 0;
       }
-      return Object.keys(appInfo.channels).length;
+      return Object.keys(this.appInfoMap[appId].channels).length;
     },
 
     // Add channel to the appId. Upon successfully adding the entry
@@ -183,17 +182,10 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
       }
     },
 
-    // Validates the given 'channelToken' by checking if it is a registered one
-    // for the given (appId, channelToken)
-    isValidChannelToken: function(appId, channelToken) {
-      return (appId in this.appInfoMap) &&
-             (channelToken in this.appInfoMap[appId].channels);
-    },
-
     // Get the 'channel' associated with (appId, channelToken)
     getChannel: function(appId, channelToken) {
-      if (!this.isValidChannelToken(appId, channelToken)) {
-        debug("Invalid Channel Token. Unable to get the channel");
+      if (!(appId in this.appInfoMap) ||
+          !(channelToken in this.appInfoMap[appId].channels)) {
         return null;
       }
 
@@ -356,9 +348,10 @@ SecureElementManager.prototype = {
   },
 
   handleTransmit: function(msg, callback) {
-    // Perform basic sanity checks!
-    if (!gMap.isValidChannelToken(msg.appId, msg.channelToken)) {
-      debug("Invalid token:" + msg.channelToken + ", appId: " + msg.appId );
+    let channel = gMap.getChannel(msg.appId, msg.channelToken);
+
+    if (!channel) {
+      debug("Invalid token:" + msg.channelToken + ", appId: " + msg.appId);
       if (callback) {
         callback({ error: SE.ERROR_GENERIC });
       }
@@ -367,7 +360,6 @@ SecureElementManager.prototype = {
 
     // TODO: Bug 1118098  - Integrate with ACE module
     let connector = getConnector(msg.type);
-    let channel = gMap.getChannel(msg.appId, msg.channelToken);
     connector.exchangeAPDU(channel, msg.apdu.cla, msg.apdu.ins,
                            msg.apdu.p1, msg.apdu.p2,
                            SEUtils.byteArrayToHexString(msg.apdu.data),
@@ -393,8 +385,9 @@ SecureElementManager.prototype = {
   },
 
   handleCloseChannel: function(msg, callback) {
-    // Perform Sanity Checks!
-    if (!gMap.isValidChannelToken(msg.appId, msg.channelToken)) {
+    let channel = gMap.getChannel(msg.appId, msg.channelToken);
+
+    if (!channel) {
       debug("Invalid token:" + msg.channelToken + ", appId:" + msg.appId);
       if (callback) {
         callback({ error: SE.ERROR_GENERIC });
@@ -404,7 +397,6 @@ SecureElementManager.prototype = {
 
     // TODO: Bug 1118098  - Integrate with ACE module
     let connector = getConnector(msg.type);
-    let channel = gMap.getChannel(msg.appId, msg.channelToken);
     connector.closeChannel(channel, {
       notifyCloseChannelSuccess: () => {
         gMap.removeChannel(msg.appId, channel, msg.type);
@@ -424,7 +416,7 @@ SecureElementManager.prototype = {
 
   handleGetSEReadersRequest: function(msg) {
     // TODO: Bug 1118101 Get supported readerTypes based on the permissions
-    // available for the given.
+    // available for the given application.
     let seReaderTypes = this._getAvailableReaderTypes();
     gMap.registerSecureElementTarget(msg.data.appId, seReaderTypes, msg.target);
     let options = {
@@ -460,7 +452,7 @@ SecureElementManager.prototype = {
   receiveMessage: function(msg) {
     DEBUG && debug("Received '" + msg.name + "' message from content process" +
                    ": " + JSON.stringify(msg.data));
-    if (msg.name == "child-process-shutdown") {
+    if (msg.name === "child-process-shutdown") {
       // By the time we receive child-process-shutdown, the child process has
       // already forgotten its permissions so we need to unregister the target
       // for every permission.
