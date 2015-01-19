@@ -58,7 +58,7 @@ XPCOMUtils.defineLazyServiceGetter(this, "ppmm",
                                    "nsIMessageBroadcaster");
 
 XPCOMUtils.defineLazyServiceGetter(this, "UiccConnector",
-                                   "@mozilla.org/secureelement/connector;1",
+                                   "@mozilla.org/secureelement/connector/uicc;1",
                                    "nsISecureElementConnector");
 
 XPCOMUtils.defineLazyServiceGetter(this, "UUIDGenerator",
@@ -67,9 +67,6 @@ XPCOMUtils.defineLazyServiceGetter(this, "UUIDGenerator",
 
 XPCOMUtils.defineLazyModuleGetter(this, "SEUtils",
                                   "resource://gre/modules/SEUtils.jsm");
-
-const PREFERRED_UICC_CLIENTID =
-  libcutils.property_get("ro.moz.se.def_client_id", "0");
 
 function getConnector(type) {
   switch (type) {
@@ -319,7 +316,7 @@ SecureElementManager.prototype = {
     channels.forEach((channel) => {
       debug("Attempting to Close Channel # : " + channel);
 
-      connector.closeChannel(PREFERRED_UICC_CLIENTID, channel, {
+      connector.closeChannel(channel, {
         notifyCloseChannelSuccess: () => {
           debug("notifyCloseChannelSuccess # : " + channel);
           // Remove the channel entry from the map, since this channel
@@ -356,9 +353,7 @@ SecureElementManager.prototype = {
 
     // TODO: Bug 1118098  - Integrate with ACE module
     let connector = getConnector(msg.type);
-    connector.openChannel(PREFERRED_UICC_CLIENTID,
-      SEUtils.byteArrayToHexString(msg.aid), {
-
+    connector.openChannel(SEUtils.byteArrayToHexString(msg.aid), {
       notifyOpenChannelSuccess: (channel, openResponse) => {
         // Add the new 'channel' to the map upon success
         let channelToken = gMap.addChannel(channel, msg);
@@ -395,8 +390,8 @@ SecureElementManager.prototype = {
 
     // TODO: Bug 1118098  - Integrate with ACE module
     let connector = getConnector(msg.type);
-    connector.exchangeAPDU(PREFERRED_UICC_CLIENTID, gMap.getChannel(msg),
-                           msg.apdu.cla, msg.apdu.ins, msg.apdu.p1, msg.apdu.p2,
+    connector.exchangeAPDU(gMap.getChannel(msg), msg.apdu.cla, msg.apdu.ins,
+                           msg.apdu.p1, msg.apdu.p2,
                            SEUtils.byteArrayToHexString(msg.apdu.data),
                            msg.apdu.le, {
       notifyExchangeAPDUResponse: (sw1, sw2, response) => {
@@ -432,7 +427,7 @@ SecureElementManager.prototype = {
     // TODO: Bug 1118098  - Integrate with ACE module
     let connector = getConnector(msg.type);
     let channel = gMap.getChannel(msg);
-    connector.closeChannel(PREFERRED_UICC_CLIENTID, channel, {
+    connector.closeChannel(channel, {
       notifyCloseChannelSuccess: () => {
         gMap.removeChannel(channel, msg.type);
         if (callback) {

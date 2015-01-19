@@ -14,5 +14,5 @@
 
 # UiccConnector
 component {8e040e5d-c8c3-4c1b-ac82-c00d25d8c4a4} UiccConnector.js
-contract @mozilla.org/secureelement/connector;1 {8e040e5d-c8c3-4c1b-ac82-c00d25d8c4a4}
+contract @mozilla.org/secureelement/connector/uicc;1 {8e040e5d-c8c3-4c1b-ac82-c00d25d8c4a4}
 category profile-after-change UiccConnector @mozilla.org/secureelement/connector;1

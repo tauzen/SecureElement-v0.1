@@ -48,7 +48,7 @@ XPCOMUtils.defineLazyServiceGetter(this, "iccProvider",
                                    "nsIIccProvider");
 
 const UICCCONNECTOR_CONTRACTID =
-  "@mozilla.org/secureelement/connector;1";
+  "@mozilla.org/secureelement/connector/uicc;1";
 const UICCCONNECTOR_CID =
   Components.ID("{8e040e5d-c8c3-4c1b-ac82-c00d25d8c4a4}");
 const NS_XPCOM_SHUTDOWN_OBSERVER_ID = "xpcom-shutdown";
@@ -115,7 +115,7 @@ UiccConnector.prototype = {
     return this._isPresent;
   },
 
-  _setChannelToClassByte(cla, channel) {
+  _setChannelToClassByte: function(cla, channel) {
     if (channel < 4) {
       // b7 = 0 indicates the first interindustry class byte coding
       cla = (((cla & 0x9C) & 0xFF) |  channel);
@@ -145,10 +145,10 @@ UiccConnector.prototype = {
     }
   },
 
-  _doGetOpenResponse: function(clientId, channel, length, callback) {
+  _doGetOpenResponse: function(channel, length, callback) {
     // Le value is set. It means that this is a request for all available
     // response bytes.
-    this.exchangeAPDU(clientId, channel, (channel & 0xFF), SE.INS_GET_RESPONSE,
+    this.exchangeAPDU(channel, (channel & 0xFF), SE.INS_GET_RESPONSE,
                         0x00, 0x00, null, length, {
       notifyExchangeAPDUResponse: function(sw1, sw2, response) {
         debug("GET Response : " + response);
@@ -172,10 +172,10 @@ UiccConnector.prototype = {
     });
   },
 
-  _doIccExchangeAPDU: function(clientId, channel, cla, ins, p1, p2, p3,
+  _doIccExchangeAPDU: function(channel, cla, ins, p1, p2, p3,
                                data, appendResponse, callback) {
-    iccProvider.iccExchangeAPDU(clientId, channel, (cla & 0xFC), ins,
-                                p1, p2, p3, data, {
+    iccProvider.iccExchangeAPDU(PREFERRED_UICC_CLIENTID, channel, (cla & 0xFC),
+                                ins, p1, p2, p3, data, {
       notifyExchangeAPDUResponse: (sw1, sw2, response) => {
         debug("sw1 : " + sw1 + ", sw2 : " + sw2 + ", response : " + response);
 
@@ -192,7 +192,7 @@ UiccConnector.prototype = {
 
           // Recursive! and Pass empty response '' as args, since '0x6C'
           // procedure does not have to deal with appended responses.
-          this._doIccExchangeAPDU(clientId, channel, cla, ins, p1, p2,
+          this._doIccExchangeAPDU(channel, cla, ins, p1, p2,
                                   sw2, data, "", callback);
         } else if (sw1 === 0x61) {
           debug("Enforce '0x61' Procedure with sw2 : " + sw2);
@@ -204,7 +204,7 @@ UiccConnector.prototype = {
           // Recursive, with GET RESPONSE bytes and '0x61' procedure IS
           // interested in appended responses.
           // Pass appended response and note that p3=sw2.
-          this._doIccExchangeAPDU(clientId, channel, (channel & 0xFF),
+          this._doIccExchangeAPDU(channel, (channel & 0xFF),
             SE.INS_GET_RESPONSE, 0x00, 0x00, sw2, null,
             (response ? response + appendResponse : appendResponse),
             callback);
@@ -228,22 +228,20 @@ UiccConnector.prototype = {
    */
 
   /**
-   * Opens a supplementary channel on a given clientId
+   * Opens a supplementary channel on a default clientId
    */
-  openChannel: function(clientId, aid, callback) {
+  openChannel: function(aid, callback) {
     this._checkPresence();
 
-    // TODO: Bug 1118106 : Handle Resource management / leaks by persisting
-    //                     the newly opened channel in some persistent
-    //                     storage so that when this module gets restarted
-    //                     (say after opening a channel) in the event of
-    //                     some erroneous conditions such as gecko restart /,
-    //                     crash it can read the persistent storage to check
-    //                     if there are any held resources. (opened channels)
-    //                     and close them.
-    iccProvider.iccOpenChannel(clientId, aid, {
+    // TODO: Bug 1118106: Handle Resource management / leaks by persisting
+    // the newly opened channel in some persistent storage so that when this
+    // module gets restarted (say after opening a channel) in the event of
+    // some erroneous conditions such as gecko restart /, crash it can read
+    // the persistent storage to check if there are any held resources
+    // (opened channels) and close them.
+    iccProvider.iccOpenChannel(PREFERRED_UICC_CLIENTID, aid, {
       notifyOpenChannelSuccess: (channel) => {
-        this._doGetOpenResponse(clientId, channel, 0x00, function(result) {
+        this._doGetOpenResponse(channel, 0x00, function(result) {
           if (callback) {
             callback.notifyOpenChannelSuccess(channel, result.response);
           }
@@ -261,9 +259,9 @@ UiccConnector.prototype = {
   },
 
   /**
-   * Transmit the C-APDU (command) on given clientId.
+   * Transmit the C-APDU (command) on default clientId.
    */
-  exchangeAPDU: function(clientId, channel, cla, ins, p1, p2, data, le, callback) {
+  exchangeAPDU: function(channel, cla, ins, p1, p2, data, le, callback) {
     this._checkPresence();
 
     // See GP Spec, 11.1.4 Class Byte Coding
@@ -295,17 +293,17 @@ UiccConnector.prototype = {
     // Pass empty response '' as args as we are not interested in appended
     // responses yet!
     debug("exchangeAPDU on Channel # " + channel);
-    this._doIccExchangeAPDU(clientId, channel, cla, ins,
-                            p1, p2, p3/2, data, "", callback);
+    this._doIccExchangeAPDU(channel, cla, ins, p1, p2, p3/2, data, "",
+                            callback);
   },
 
   /**
-   * Closes the channel on given clientId.
+   * Closes the channel on default clientId.
    */
-  closeChannel: function(clientId, channel, callback) {
+  closeChannel: function(channel, callback) {
     this._checkPresence();
 
-    iccProvider.iccCloseChannel(clientId, channel, {
+    iccProvider.iccCloseChannel(PREFERRED_UICC_CLIENTID, channel, {
       notifyCloseChannelSuccess: function() {
         debug("closeChannel successfully closed the channel # : " + channel);
         if (callback) {
