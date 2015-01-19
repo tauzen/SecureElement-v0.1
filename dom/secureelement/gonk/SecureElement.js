@@ -105,14 +105,14 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
     appInfoMap: {},
 
     // Register the new SecureElement target.
-    registerSecureElementTarget: function(message, readers) {
-      let appId = message.data.appId;
-      if (this.appInfoMap[appId]) {
+    registerSecureElementTarget: function(appId, readers, target) {
+      if (appId in this.appInfoMap) {
         debug("Already registered SE target! appId:" + appId);
         return;
       }
+
       this.appInfoMap[appId] = {
-        target: message.target,
+        target: target,
         readerTypes: readers,
         channels: {}
       };
@@ -433,7 +433,7 @@ SecureElementManager.prototype = {
     // TODO: Bug 1118101 Get supported readerTypes based on the permissions
     // available for the given.
     let seReaderTypes = this._getAvailableReaderTypes();
-    gMap.registerSecureElementTarget(msg, seReaderTypes);
+    gMap.registerSecureElementTarget(msg.data.appId, seReaderTypes, msg.target);
     let options = {
       result: { readerTypes: seReaderTypes },
       metadata: msg.data
