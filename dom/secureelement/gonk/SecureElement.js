@@ -137,8 +137,8 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
         return [];
       }
 
-      let channels = appInfo.channels || {};
-      return Object.keys(channels).map(cKey => channels[cKey].channel);
+      return Object.keys(appInfo.channels)
+                   .map(cKey => appInfo.channels[cKey].channel);
     },
 
     // Gets channel count associated with the 'appId'
@@ -159,31 +159,26 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
         debug("Unable to add channel: " + msg.appId);
         return null;
       }
-      // Generate a unique 'token' (alias) instead of sending 'channel number'.
-      // to the content. Any further 'Channel' related operations by the content
-      // shall operate using this token.
+
       let token = UUIDGenerator.generateUUID().toString();
-      // Add the entry
-      appInfo.channels[token] = { seType: msg.type, aid: msg.aid, channel:  channel };
+      appInfo.channels[token] = { seType: msg.type, aid: msg.aid, channel: channel };
       return token;
     },
 
     // Remove the given channel entry based on type.
     // Note that channel will be unique per type
-    removeChannel: function(channel, type) {
-      Object.keys(this.appInfoMap).forEach((appId) => {
-        let channels = this.appInfoMap[appId].channels;
-        let token = Object.keys(channels).find((ch) => {
-          return channels[ch].channel === channel &&
-                 channels[ch].seType === type;
-        });
-
-        if (token) {
-          debug("Deleting channel with token : " + token +
-                ",  channel : " +  channel);
-          delete channels[token];
-        }
+    removeChannel: function(appId, channel, type) {
+      let channels = this.appInfoMap[appId].channels;
+      let token = Object.keys(channels).find((ch) => {
+        return channels[ch].channel === channel &&
+               channels[ch].seType === type;
       });
+
+      if (token) {
+        debug("Deleting channel with token : " + token +
+              ",  channel : " +  channel);
+        delete channels[token];
+      }
     },
 
     // Validates the given 'channelToken' by checking if it is a registered one
