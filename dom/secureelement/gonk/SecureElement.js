@@ -117,13 +117,12 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
         channels: {}
       };
 
-      debug("Registering a new SE target " + appId);
+      debug("Registered a new SE target " + appId);
     },
 
     // UnRegister the SecureElement target.
-    unregisterSecureElementTarget: function(target) {
-      let appId = this.getAppIdByTarget(target);
-      if (appId) {
+    unregisterSecureElementTarget: function(appId) {
+      if (appId in this.appInfoMap) {
         debug("Unregistered SE Target for AppId : " + appId);
         delete this.appInfoMap[appId];
       }
@@ -153,15 +152,18 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
 
     // Add channel to the appId. Upon successfully adding the entry
     // this function will return the 'token'
-    addChannel: function(channel, msg) {
-      let appInfo = this.appInfoMap[msg.appId];
-      if (!appInfo) {
-        debug("Unable to add channel: " + msg.appId);
+    addChannel: function(appId, type, aid, channel) {
+      if (!(appId in this.appInfoMap)) {
+        debug("Unable to add channel, no such appId: " + appId);
         return null;
       }
 
       let token = UUIDGenerator.generateUUID().toString();
-      appInfo.channels[token] = { seType: msg.type, aid: msg.aid, channel: channel };
+      this.appInfoMap[appId].channels[token] = {
+        seType: type,
+        aid: aid,
+        channel: channel
+      };
       return token;
     },
 
@@ -183,15 +185,12 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
 
     // Validates the given 'channelToken' by checking if it is a registered one
     // for the given (appId, channelToken)
-    isValidChannelToken: function(data) {
-      let { appId: appId, channelToken: chToken } = data;
-
-      // appId needs to be present
+    isValidChannelToken: function(appId, channelToken) {
       if (!appId || !this.appInfoMap[appId]) {
         return false;
       }
-      if (chToken &&
-          !this.appInfoMap[appId].channels[chToken]) {
+      if (channelToken &&
+          !this.appInfoMap[appId].channels[channelToken]) {
         return false;
       }
 
@@ -199,18 +198,18 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
     },
 
     // Get the 'channel' associated with (appId, channelToken)
-    getChannel: function(data) {
-      if (!this.isValidChannelToken(data)) {
-        debug("InValid Channel Token. Unable to get the channel");
+    getChannel: function(appId, channelToken) {
+      if (!this.isValidChannelToken(appId, channelToken)) {
+        debug("Invalid Channel Token. Unable to get the channel");
         return null;
       }
 
-      return this.appInfoMap[data.appId].channels[data.channelToken].channel;
+      return this.appInfoMap[appId].channels[channelToken].channel;
     },
 
     getAppIdByTarget: function(target) {
       let appId = Object.keys(this.appInfoMap).find((id) => {
-        return this.appInfoMap[id] && this.appInfoMap[id].target === target;
+        return this.appInfoMap[id].target === target;
       });
 
       return appId;
@@ -271,7 +270,7 @@ SecureElementManager.prototype = {
   },
 
   // Private function used to retreive available readerNames
-  _getAvailableReaders: function() {
+  _getAvailableReaderTypes: function() {
     let readerTypes = [];
     // TODO 1: Bug 1118096 - Add IDL so that other sub-systems such as RIL ,
     // NFC can implement it.
@@ -306,7 +305,7 @@ SecureElementManager.prototype = {
           debug("notifyCloseChannelSuccess # : " + channel);
           // Remove the channel entry from the map, since this channel
           // has been successfully closed
-          gMap.removeChannel(channel, type);
+          gMap.removeChannel(appId, channel, type);
           if (callback && (++cbCnt === channels.length)) {
             callback({ error: SE.ERROR_NONE });
           }
@@ -341,7 +340,7 @@ SecureElementManager.prototype = {
     connector.openChannel(SEUtils.byteArrayToHexString(msg.aid), {
       notifyOpenChannelSuccess: (channel, openResponse) => {
         // Add the new 'channel' to the map upon success
-        let channelToken = gMap.addChannel(channel, msg);
+        let channelToken = gMap.addChannel(msg.appId, msg.type, msg.aid, channel);
         if (callback) {
           callback({
             error: SE.ERROR_NONE,
@@ -365,7 +364,7 @@ SecureElementManager.prototype = {
 
   handleTransmit: function(msg, callback) {
     // Perform basic sanity checks!
-    if (!gMap.isValidChannelToken(msg)) {
+    if (!gMap.isValidChannelToken(msg.appId, msg.channelToken)) {
       debug("Invalid token:" + msg.channelToken + ", appId: " + msg.appId );
       if (callback) {
         callback({ error: SE.ERROR_GENERIC });
@@ -375,7 +374,8 @@ SecureElementManager.prototype = {
 
     // TODO: Bug 1118098  - Integrate with ACE module
     let connector = getConnector(msg.type);
-    connector.exchangeAPDU(gMap.getChannel(msg), msg.apdu.cla, msg.apdu.ins,
+    let channel = gMap.getChannel(msg.appId, msg.channelToken);
+    connector.exchangeAPDU(channel, msg.apdu.cla, msg.apdu.ins,
                            msg.apdu.p1, msg.apdu.p2,
                            SEUtils.byteArrayToHexString(msg.apdu.data),
                            msg.apdu.le, {
@@ -401,7 +401,7 @@ SecureElementManager.prototype = {
 
   handleCloseChannel: function(msg, callback) {
     // Perform Sanity Checks!
-    if (!gMap.isValidChannelToken(msg)) {
+    if (!gMap.isValidChannelToken(msg.appId, msg.channelToken)) {
       debug("Invalid token:" + msg.channelToken + ", appId:" + msg.appId);
       if (callback) {
         callback({ error: SE.ERROR_GENERIC });
@@ -411,10 +411,10 @@ SecureElementManager.prototype = {
 
     // TODO: Bug 1118098  - Integrate with ACE module
     let connector = getConnector(msg.type);
-    let channel = gMap.getChannel(msg);
+    let channel = gMap.getChannel(msg.appId, msg.channelToken);
     connector.closeChannel(channel, {
       notifyCloseChannelSuccess: () => {
-        gMap.removeChannel(channel, msg.type);
+        gMap.removeChannel(msg.appId, channel, msg.type);
         if (callback) {
           callback({ error: SE.ERROR_NONE });
         }
@@ -432,7 +432,7 @@ SecureElementManager.prototype = {
   handleGetSEReadersRequest: function(msg) {
     // TODO: Bug 1118101 Get supported readerTypes based on the permissions
     // available for the given.
-    let seReaderTypes = this._getAvailableReaders();
+    let seReaderTypes = this._getAvailableReaderTypes();
     gMap.registerSecureElementTarget(msg, seReaderTypes);
     let options = {
       result: { readerTypes: seReaderTypes },
@@ -457,7 +457,7 @@ SecureElementManager.prototype = {
       return;
     }
     this._closeAllChannelsByAppId(appId, SE.TYPE_UICC, null);
-    gMap.unregisterSecureElementTarget(target);
+    gMap.unregisterSecureElementTarget(appId);
   },
 
   /**
@@ -465,8 +465,8 @@ SecureElementManager.prototype = {
    */
 
   receiveMessage: function(msg) {
-    debug("Received '" + msg.name + "' message from content process" +
-          ": " + JSON.stringify(msg.data));
+    DEBUG && debug("Received '" + msg.name + "' message from content process" +
+                   ": " + JSON.stringify(msg.data));
     if (msg.name == "child-process-shutdown") {
       // By the time we receive child-process-shutdown, the child process has
       // already forgotten its permissions so we need to unregister the target
@@ -475,11 +475,11 @@ SecureElementManager.prototype = {
       return null;
     }
 
-    if (SE_IPC_SECUREELEMENT_MSG_NAMES.indexOf(msg.name) != -1) {
+    if (SE_IPC_SECUREELEMENT_MSG_NAMES.indexOf(msg.name) !== -1) {
       if (!msg.target.assertPermission("secureelement-manage")) {
         debug("SecureElement message " + msg.name + " from a content process " +
               "with no 'secureelement-manage' privileges.");
-        throw new Error("Don't know about this message: " + msg.name);
+        return null;
       }
     } else {
       debug("Ignoring unknown message type: " + msg.name);
