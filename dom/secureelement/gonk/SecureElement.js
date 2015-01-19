@@ -86,32 +86,22 @@ function getConnector(type) {
  */
 XPCOMUtils.defineLazyGetter(this, "gMap", function() {
   return {
-    /*
-    ------------------------------
-       Structure of 'appInfoMap':
-    ------------------------------
-    {[appId :// (key = '1020')
-        target         : msg.target
-        readerTypes    : [] // 'uicc','eSE'
-        channels : {
-          [token: // (key = 'aaaaa')
-            seType: // 'uicc' or 'eSE'
-            aid :
-            channel : ]
-          [token: // (key = 'bbbbb')
-            seType:
-            aid :
-            channel : ]
-          [token: // (key = 'ccccc')
-            seType:
-            aid :
-            channel :]
-        }] // End of 'channels'
-    [appId : // (key = '1025')
-        ...
-        ...
-        ...
-    ]} */
+    // example structure of AppInfoMap
+    // {
+    //   appId1: {
+    //     target: target1,
+    //     readerType: ["uicc", "eSE"],
+    //     channels: {
+    //       channelToken1: {
+    //         seType: "uicc",
+    //         aid: "aid1",
+    //         channel: 1
+    //       },
+    //       channelToken2: { ... }
+    //     }
+    //   },
+    //  appId2: { ... }
+    // }
     appInfoMap: {},
 
     // Register the new SecureElement target.
