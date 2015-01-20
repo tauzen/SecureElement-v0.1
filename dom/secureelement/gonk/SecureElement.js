@@ -362,7 +362,7 @@ SecureElementManager.prototype = {
     // available for the given application.
     let seReaderTypes = this._getAvailableReaderTypes();
     gMap.registerSecureElementTarget(msg.appId, seReaderTypes, msg.target);
-    callback({ readerTypes: seReaderTypes });
+    callback({ readerTypes: seReaderTypes, error: SE.ERROR_NONE });
   },
 
   // performs clean up of UICC channels only
