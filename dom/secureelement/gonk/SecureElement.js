@@ -128,15 +128,15 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
 
     // Gets all the channels in an array for the given appId and type
     getChannelNumbersByAppIdType: function(appId, type) {
-      let appInfo = this.appInfoMap[appId];
-      if (!appInfo) {
+      let aInfo = this.appInfoMap[appId];
+      if (!aInfo) {
         debug("Unable to get channels : " + appId);
         return [];
       }
 
-      return Object.keys(appInfo.channels)
-                   .filter(cKey => appInfo.channels[cKey].seType === type)
-                   .map(cKey => appInfo.channels[cKey].channelNumber);
+      return Object.keys(aInfo.channels)
+                   .filter(c => type ? aInfo.channels[c].seType === type : true)
+                   .map(cKey => aInfo.channels[cKey].channelNumber);
     },
 
     getChannelCountByAppIdType: function(appId, type) {
@@ -258,47 +258,6 @@ SecureElementManager.prototype = {
     // i;e; Instead of returning 'uicc', return 'uicc<slot#>'.
     readerTypes.push(SE.TYPE_UICC);
     return readerTypes;
-  },
-
-  _closeAllChannelsByAppId: function(appId, type, callback) {
-    let channelNumbers = gMap.getChannelNumbersByAppIdType(appId);
-    if (channelNumbers.length === 0) {
-      debug("No channels to close.");
-      if(callback) {
-        callback({
-          error: SE.ERROR_BADSTATE,
-          reason: "No Active Channels to be closed!"
-        });
-      }
-      return;
-    }
-
-    let connector = getConnector(type);
-    // Counter to keep track of callbacks received from 'Connector'.
-    let cbCnt = 0;
-    channelNumbers.forEach((channel) => {
-      debug("Attempting to Close Channel # : " + channel);
-
-      connector.closeChannel(channel, {
-        notifyCloseChannelSuccess: () => {
-          debug("notifyCloseChannelSuccess # : " + channel);
-          // Remove the channel entry from the map, since this channel
-          // has been successfully closed
-          gMap.removeChannel(appId, channel, type);
-          if (callback && (++cbCnt === channels.length)) {
-            callback({ error: SE.ERROR_NONE });
-          }
-        },
-
-        notifyError: (reason) => {
-          debug("Failed to close the channel #  : " + channel +
-                ", Rejected with Reason : " + reason);
-          if (callback && (++cbCnt === channels.length)) {
-            callback({ error: SE.ERROR_BADSTATE, reason: reason });
-          }
-        }
-      });
-    });
   },
 
   // Following functions are handlers for requests from content
@@ -432,12 +391,37 @@ SecureElementManager.prototype = {
     });
   },
 
+  // performs clean up of UICC channels only
+  // TODO implement closing of other SE channel types (when available)
+  // TODO consider closing sequentially
   handleChildProcessShutdown: function(target) {
     let appId = gMap.getAppIdByTarget(target);
     if (!appId) {
       return;
     }
-    this._closeAllChannelsByAppId(appId, SE.TYPE_UICC, null);
+
+    let channelNumbers = gMap.getChannelNumbersByAppIdType(appId, SE.TYPE_UICC);
+    if (channelNumbers.length === 0) {
+      debug("No channels to close.");
+      return;
+    }
+
+    let connector = getConnector(SE.TYPE_UICC);
+    channelNumbers.forEach((channel) => {
+      debug("Attempting to Close Channel #" + channel);
+
+      connector.closeChannel(channel, {
+        notifyCloseChannelSuccess: () => {
+          debug("notifyCloseChannelSuccess #" + channel);
+        },
+
+        notifyError: (reason) => {
+          debug("Failed to close the channel #" + channel +
+                ", Rejected with Reason : " + reason);
+        }
+      });
+    });
+
     gMap.unregisterSecureElementTarget(appId);
   },
 
