@@ -88,23 +88,22 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
   return {
     // example structure of AppInfoMap
     // {
-    //   appId1: {
+    //   "appId1": {
     //     target: target1,
     //     readerType: ["uicc", "eSE"],
     //     channels: {
-    //       channelToken1: {
+    //       "channelToken1": {
     //         seType: "uicc",
     //         aid: "aid1",
-    //         channel: 1
+    //         channelNumber: 1
     //       },
-    //       channelToken2: { ... }
+    //       "channelToken2": { ... }
     //     }
     //   },
-    //  appId2: { ... }
+    //  "appId2": { ... }
     // }
     appInfoMap: {},
 
-    // Register the new SecureElement target.
     registerSecureElementTarget: function(appId, readers, target) {
       if (appId in this.appInfoMap) {
         debug("Already registered SE target! appId:" + appId);
@@ -120,7 +119,6 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
       debug("Registered a new SE target " + appId);
     },
 
-    // UnRegister the SecureElement target.
     unregisterSecureElementTarget: function(appId) {
       if (appId in this.appInfoMap) {
         debug("Unregistered SE Target for AppId : " + appId);
@@ -128,8 +126,8 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
       }
     },
 
-    // Gets all the channels in an array for the given appId
-    getAllChannelsByAppId: function(appId) {
+    // Gets all the channels in an array for the given appId and type
+    getChannelNumbersByAppIdType: function(appId, type) {
       let appInfo = this.appInfoMap[appId];
       if (!appInfo) {
         debug("Unable to get channels : " + appId);
@@ -137,21 +135,17 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
       }
 
       return Object.keys(appInfo.channels)
-                   .map(cKey => appInfo.channels[cKey].channel);
+                   .filter(cKey => appInfo.channels[cKey].seType === type)
+                   .map(cKey => appInfo.channels[cKey].channelNumber);
     },
 
-    // Gets channel count associated with the 'appId'
-    getChannelCount: function(appId) {
-      if (!(appId in this.appInfoMap)) {
-        debug("Unable to get channel count: " + appId);
-        return 0;
-      }
-      return Object.keys(this.appInfoMap[appId].channels).length;
+    getChannelCountByAppIdType: function(appId, type) {
+      return this.getChannelNumbersByAppIdType(appId, type).length;
     },
 
     // Add channel to the appId. Upon successfully adding the entry
     // this function will return the 'token'
-    addChannel: function(appId, type, aid, channel) {
+    addChannel: function(appId, type, aid, channelNumber) {
       if (!(appId in this.appInfoMap)) {
         debug("Unable to add channel, no such appId: " + appId);
         return null;
@@ -161,35 +155,35 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
       this.appInfoMap[appId].channels[token] = {
         seType: type,
         aid: aid,
-        channel: channel
+        channelNumber: channelNumber
       };
       return token;
     },
 
     // Remove the given channel entry based on type.
     // Note that channel will be unique per type
-    removeChannel: function(appId, channel, type) {
+    removeChannel: function(appId, channelNumber, type) {
       let channels = this.appInfoMap[appId].channels;
       let token = Object.keys(channels).find((ch) => {
-        return channels[ch].channel === channel &&
+        return channels[ch].channelNumber === channelNumber &&
                channels[ch].seType === type;
       });
 
       if (token) {
         debug("Deleting channel with token : " + token +
-              ",  channel : " +  channel);
+              ",  channel : " +  channelNumber);
         delete channels[token];
       }
     },
 
     // Get the 'channel' associated with (appId, channelToken)
-    getChannel: function(appId, channelToken) {
+    getChannelNumber: function(appId, channelToken) {
       if (!(appId in this.appInfoMap) ||
           !(channelToken in this.appInfoMap[appId].channels)) {
         return null;
       }
 
-      return this.appInfoMap[appId].channels[channelToken].channel;
+      return this.appInfoMap[appId].channels[channelToken].channelNumber;
     },
 
     getAppIdByTarget: function(target) {
@@ -267,8 +261,8 @@ SecureElementManager.prototype = {
   },
 
   _closeAllChannelsByAppId: function(appId, type, callback) {
-    let channels = gMap.getAllChannelsByAppId(appId);
-    if (channels.length === 0) {
+    let channelNumbers = gMap.getChannelNumbersByAppIdType(appId);
+    if (channelNumbers.length === 0) {
       debug("No channels to close.");
       if(callback) {
         callback({
@@ -282,7 +276,7 @@ SecureElementManager.prototype = {
     let connector = getConnector(type);
     // Counter to keep track of callbacks received from 'Connector'.
     let cbCnt = 0;
-    channels.forEach((channel) => {
+    channelNumbers.forEach((channel) => {
       debug("Attempting to Close Channel # : " + channel);
 
       connector.closeChannel(channel, {
@@ -311,7 +305,7 @@ SecureElementManager.prototype = {
 
   handleOpenChannel: function(msg, callback) {
     // Perform Sanity Checks!
-    if (gMap.getChannelCount(msg.appId) >=
+    if (gMap.getChannelCountByAppIdType(msg.appId, msg.type) >=
         SE.MAX_CHANNELS_ALLOWED_PER_SESSION) {
       debug("Max channels per session exceed !!!");
       if (callback) {
@@ -323,14 +317,15 @@ SecureElementManager.prototype = {
     // TODO: Bug 1118098  - Integrate with ACE module
     let connector = getConnector(msg.type);
     connector.openChannel(SEUtils.byteArrayToHexString(msg.aid), {
-      notifyOpenChannelSuccess: (channel, openResponse) => {
+      notifyOpenChannelSuccess: (channelNumber, openResponse) => {
         // Add the new 'channel' to the map upon success
-        let channelToken = gMap.addChannel(msg.appId, msg.type, msg.aid, channel);
+        let channelToken =
+          gMap.addChannel(msg.appId, msg.type, msg.aid, channelNumber);
         if (callback) {
           callback({
             error: SE.ERROR_NONE,
             channelToken: channelToken,
-            isBasicChannel: (channel === SE.BASIC_CHANNEL),
+            isBasicChannel: (channelNumber === SE.BASIC_CHANNEL),
             openResponse: SEUtils.hexStringToByteArray(openResponse)
           });
         }
@@ -348,9 +343,9 @@ SecureElementManager.prototype = {
   },
 
   handleTransmit: function(msg, callback) {
-    let channel = gMap.getChannel(msg.appId, msg.channelToken);
+    let channelNumber = gMap.getChannelNumber(msg.appId, msg.channelToken);
 
-    if (!channel) {
+    if (!channelNumber) {
       debug("Invalid token:" + msg.channelToken + ", appId: " + msg.appId);
       if (callback) {
         callback({ error: SE.ERROR_GENERIC });
@@ -360,7 +355,7 @@ SecureElementManager.prototype = {
 
     // TODO: Bug 1118098  - Integrate with ACE module
     let connector = getConnector(msg.type);
-    connector.exchangeAPDU(channel, msg.apdu.cla, msg.apdu.ins,
+    connector.exchangeAPDU(channelNumber, msg.apdu.cla, msg.apdu.ins,
                            msg.apdu.p1, msg.apdu.p2,
                            SEUtils.byteArrayToHexString(msg.apdu.data),
                            msg.apdu.le, {
@@ -385,9 +380,9 @@ SecureElementManager.prototype = {
   },
 
   handleCloseChannel: function(msg, callback) {
-    let channel = gMap.getChannel(msg.appId, msg.channelToken);
+    let channelNumber = gMap.getChannelNumber(msg.appId, msg.channelToken);
 
-    if (!channel) {
+    if (!channelNumber) {
       debug("Invalid token:" + msg.channelToken + ", appId:" + msg.appId);
       if (callback) {
         callback({ error: SE.ERROR_GENERIC });
@@ -397,16 +392,17 @@ SecureElementManager.prototype = {
 
     // TODO: Bug 1118098  - Integrate with ACE module
     let connector = getConnector(msg.type);
-    connector.closeChannel(channel, {
+    connector.closeChannel(channelNumber, {
       notifyCloseChannelSuccess: () => {
-        gMap.removeChannel(msg.appId, channel, msg.type);
+        gMap.removeChannel(msg.appId, channelNumber, msg.type);
         if (callback) {
           callback({ error: SE.ERROR_NONE });
         }
       },
 
       notifyError: (reason) => {
-        debug("Failed to close channel:" + channel + ", reason: " + reason);
+        debug("Failed to close channel: " + channelNumber +
+              ", reason: "+ reason);
         if (callback) {
           callback({ error: SE.ERROR_BADSTATE, reason: reason });
         }
