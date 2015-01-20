@@ -357,11 +357,11 @@ SecureElementManager.prototype = {
     });
   },
 
-  handleGetSEReadersRequest: function(msg, callback) {
+  handleGetSEReadersRequest: function(msg, target, callback) {
     // TODO: Bug 1118101 Get supported readerTypes based on the permissions
     // available for the given application.
     let seReaderTypes = this._getAvailableReaderTypes();
-    gMap.registerSecureElementTarget(msg.appId, seReaderTypes, msg.target);
+    gMap.registerSecureElementTarget(msg.appId, seReaderTypes, target);
     callback({ readerTypes: seReaderTypes, error: SE.ERROR_NONE });
   },
 
@@ -425,7 +425,7 @@ SecureElementManager.prototype = {
     let callback = (result) => this.sendSEResponse(msg, result);
     switch (msg.name) {
       case "SE:GetSEReaders":
-        this.handleGetSEReadersRequest(msg.data, callback);
+        this.handleGetSEReadersRequest(msg.data, msg.target, callback);
         break;
       case "SE:OpenChannel":
         this.handleOpenChannel(msg.data, callback);
