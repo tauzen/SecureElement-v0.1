@@ -204,12 +204,6 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
  */
 function SecureElementManager() {
   this._registerMessageListeners();
-
-  // Initialize handlers array
-  this.handlers["SE:OpenChannel"] = this.handleOpenChannel;
-  this.handlers["SE:CloseChannel"] = this.handleCloseChannel;
-  this.handlers["SE:TransmitAPDU"] = this.handleTransmit;
-
   Services.obs.addObserver(this, NS_XPCOM_SHUTDOWN_OBSERVER_ID, false);
 }
 
@@ -224,8 +218,6 @@ SecureElementManager.prototype = {
     interfaces:       [Ci.nsIMessageListener,
                        Ci.nsIObserver]
   }),
-
-  handlers: [],
 
   _shutdown: function() {
     this.secureelement = null;
@@ -259,8 +251,6 @@ SecureElementManager.prototype = {
     readerTypes.push(SE.TYPE_UICC);
     return readerTypes;
   },
-
-  // Following functions are handlers for requests from content
 
   handleOpenChannel: function(msg, callback) {
     // Perform Sanity Checks!
@@ -312,7 +302,6 @@ SecureElementManager.prototype = {
       return;
     }
 
-    // TODO: Bug 1118098  - Integrate with ACE module
     let connector = getConnector(msg.type);
     connector.exchangeAPDU(channelNumber, msg.apdu.cla, msg.apdu.ins,
                            msg.apdu.p1, msg.apdu.p2,
@@ -349,7 +338,6 @@ SecureElementManager.prototype = {
       return;
     }
 
-    // TODO: Bug 1118098  - Integrate with ACE module
     let connector = getConnector(msg.type);
     connector.closeChannel(channelNumber, {
       notifyCloseChannelSuccess: () => {
@@ -369,31 +357,16 @@ SecureElementManager.prototype = {
     });
   },
 
-  handleGetSEReadersRequest: function(msg) {
+  handleGetSEReadersRequest: function(msg, callback) {
     // TODO: Bug 1118101 Get supported readerTypes based on the permissions
     // available for the given application.
     let seReaderTypes = this._getAvailableReaderTypes();
-    gMap.registerSecureElementTarget(msg.data.appId, seReaderTypes, msg.target);
-    let options = {
-      result: { readerTypes: seReaderTypes },
-      metadata: msg.data
-    };
-    msg.target.sendAsyncMessage(msg.name + "Resolved", options);
-  },
-
-  handleRequest: function(msg) {
-    let handler = this.handlers[msg.name].bind(this);
-    handler(msg.data, function(result) {
-      let promiseStatus = (result.error === SE.ERROR_NONE) ? "Resolved"
-                                                           : "Rejected";
-      let options = { result: result, metadata: msg.data };
-      msg.target.sendAsyncMessage(msg.name + promiseStatus, options);
-    });
+    gMap.registerSecureElementTarget(msg.appId, seReaderTypes, msg.target);
+    callback({ readerTypes: seReaderTypes });
   },
 
   // performs clean up of UICC channels only
   // TODO implement closing of other SE channel types (when available)
-  // TODO consider closing sequentially
   handleChildProcessShutdown: function(target) {
     let appId = gMap.getAppIdByTarget(target);
     if (!appId) {
@@ -432,10 +405,8 @@ SecureElementManager.prototype = {
   receiveMessage: function(msg) {
     DEBUG && debug("Received '" + msg.name + "' message from content process" +
                    ": " + JSON.stringify(msg.data));
+
     if (msg.name === "child-process-shutdown") {
-      // By the time we receive child-process-shutdown, the child process has
-      // already forgotten its permissions so we need to unregister the target
-      // for every permission.
       this.handleChildProcessShutdown(msg.target);
       return null;
     }
@@ -451,17 +422,28 @@ SecureElementManager.prototype = {
       return null;
     }
 
+    let callback = (result) => this.sendSEResponse(msg, result);
     switch (msg.name) {
       case "SE:GetSEReaders":
-        this.handleGetSEReadersRequest(msg);
+        this.handleGetSEReadersRequest(msg.data, callback);
         break;
       case "SE:OpenChannel":
+        this.handleOpenChannel(msg.data, callback);
+        break;
       case "SE:CloseChannel":
+        this.handleCloseChannel(msg.data, callback);
+        break;
       case "SE:TransmitAPDU":
-        this.handleRequest(msg);
+        this.handleTransmit(msg.data, callback);
         break;
     }
     return null;
+  },
+
+  sendSEResponse: function(msg, result) {
+    let promiseStatus = (result.error === SE.ERROR_NONE) ? "Resolved" : "Rejected";
+    let options = { result: result, metadata: msg.data };
+    msg.target.sendAsyncMessage(msg.name + promiseStatus, options);
   },
 
   /**
@@ -476,4 +458,3 @@ SecureElementManager.prototype = {
 };
 
 this.NSGetFactory = XPCOMUtils.generateNSGetFactory([SecureElementManager]);
-
