@@ -62,6 +62,7 @@ this.ERROR_BADSTATE           = "SEBadStateError";
 this.ERROR_INVALIDCHANNEL     = "SEInvalidChannelError";
 this.ERROR_INVALIDAPPLICATION = "SEInvalidApplicationError";
 this.ERROR_GENERIC            = "SEGenericError";
+this.ERROR_NOTPRESENT         = "SENotPresentError";
 
 this.TYPE_UICC = "uicc";
 this.TYPE_ESE = "eSE";

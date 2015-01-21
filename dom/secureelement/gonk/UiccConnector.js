@@ -43,9 +43,11 @@ function debug(s) {
 XPCOMUtils.defineLazyModuleGetter(this, "SEUtils",
                                   "resource://gre/modules/SEUtils.jsm");
 
+#ifdef MOZ_B2G_RIL
 XPCOMUtils.defineLazyServiceGetter(this, "iccProvider",
                                    "@mozilla.org/ril/content-helper;1",
                                    "nsIIccProvider");
+#endif
 
 const UICCCONNECTOR_CONTRACTID =
   "@mozilla.org/secureelement/connector/uicc;1";
@@ -84,17 +86,21 @@ UiccConnector.prototype = {
 
   _init: function() {
     Services.obs.addObserver(this, NS_XPCOM_SHUTDOWN_OBSERVER_ID, false);
+#ifdef MOZ_B2G_RIL
     iccProvider.registerIccMsg(PREFERRED_UICC_CLIENTID, this);
 
     // Update the state in order to avoid race condition.
     // By this time, 'notifyCardStateChanged (with proper card state)'
     // may have occurred already before this module initialization.
     this._updatePresenceState();
+#endif
   },
 
   _shutdown: function() {
     Services.obs.removeObserver(this, NS_XPCOM_SHUTDOWN_OBSERVER_ID);
+#ifdef MOZ_B2G_RIL
     iccProvider.unregisterIccMsg(PREFERRED_UICC_CLIENTID, this);
+#endif
   },
 
   _updatePresenceState: function() {
@@ -109,10 +115,6 @@ UiccConnector.prototype = {
     let cardState = iccProvider.getCardState(PREFERRED_UICC_CLIENTID);
     this._isPresent = cardState !== null &&
       notReadyStates.indexOf(cardState) == -1;
-  },
-
-  _checkPresence: function() {
-    return this._isPresent;
   },
 
   _setChannelToClassByte: function(cla, channel) {
@@ -231,7 +233,10 @@ UiccConnector.prototype = {
    * Opens a supplementary channel on a default clientId
    */
   openChannel: function(aid, callback) {
-    this._checkPresence();
+    if (!this._isPresent) {
+      callback.notifyError(SE.ERROR_NOTPRESENT);
+      return;
+    }
 
     // TODO: Bug 1118106: Handle Resource management / leaks by persisting
     // the newly opened channel in some persistent storage so that when this
@@ -262,7 +267,10 @@ UiccConnector.prototype = {
    * Transmit the C-APDU (command) on default clientId.
    */
   exchangeAPDU: function(channel, cla, ins, p1, p2, data, le, callback) {
-    this._checkPresence();
+    if (!this._isPresent) {
+      callback.notifyError(SE.ERROR_NOTPRESENT);
+      return;
+    }
 
     // See GP Spec, 11.1.4 Class Byte Coding
     cla = this._setChannelToClassByte(cla, channel);
@@ -301,7 +309,10 @@ UiccConnector.prototype = {
    * Closes the channel on default clientId.
    */
   closeChannel: function(channel, callback) {
-    this._checkPresence();
+    if (!this._isPresent) {
+      callback.notifyError(SE.ERROR_NOTPRESENT);
+      return;
+    }
 
     iccProvider.iccCloseChannel(PREFERRED_UICC_CLIENTID, channel, {
       notifyCloseChannelSuccess: function() {
