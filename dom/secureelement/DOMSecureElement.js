@@ -43,25 +43,21 @@ PromiseHelpersSubclass.prototype = {
 
   _context: [],
 
-  createSEPromise: function createSEPromise(aCallback) {
-    return this.createPromise((aResolve, aReject) => {
-      let resolverId = this.getPromiseResolverId({
-        resolve: aResolve,
-        reject: aReject
-      });
-      aCallback(resolverId);
-    });
-  },
+  createSEPromise: function createSEPromise(callback, /* optional */ ctx) {
+    let ctxCallback = (resolverId) => {
+      if (ctx) {
+        this._context[resolverId] = ctx;
+      }
 
-  createSEPromiseWithCtx: function createSEPromiseWithCtx(ctx, aCallback) {
-    return this.createPromise((aResolve, aReject) => {
+      callback(resolverId);
+    };
+
+    return this.createPromise((resolve, reject) => {
       let resolverId = this.getPromiseResolverId({
-        resolve: aResolve,
-        reject: aReject
+        resolve: resolve,
+        reject: reject
       });
-      // Before calling the callback, save the context
-      this._context[resolverId] = ctx;
-      aCallback(resolverId);
+      ctxCallback(resolverId);
     });
   },
 
@@ -70,6 +66,7 @@ PromiseHelpersSubclass.prototype = {
     if (!resolver) {
       return;
     }
+
     // Get the context associated with this resolverId
     let context = this._context[resolverId];
     delete this._context[resolverId];
@@ -77,10 +74,10 @@ PromiseHelpersSubclass.prototype = {
     return {resolver: resolver, context: context};
   },
 
-  rejectWithSEError: function rejectWithSEError(aReason) {
-    return this.createSEPromise((aResolverId) => {
-      debug("rejectWithSEError : " + aReason);
-      this.takePromiseResolver(aResolverId).reject(new Error(aReason));
+  rejectWithSEError: function rejectWithSEError(reason) {
+    return this.createSEPromise((resolverId) => {
+      debug("rejectWithSEError : " + reason);
+      this.takePromiseResolver(resolverId).reject(new Error(reason));
     });
   }
 };
@@ -121,30 +118,30 @@ SEReader.prototype = {
   },
 
   openSession: function openSession() {
-    return PromiseHelpers.createSEPromise((aResolverId) => {
+    return PromiseHelpers.createSEPromise((resolverId) => {
       let chromeObj = new SESession();
       chromeObj.initialize(this._window, this);
       let contentObj = this._window.SESession._create(this._window, chromeObj);
       this._sessions.push(contentObj);
-      PromiseHelpers.takePromiseResolver(aResolverId).resolve(contentObj);
+      PromiseHelpers.takePromiseResolver(resolverId).resolve(contentObj);
     });
   },
 
   closeAll: function closeAll() {
-    return PromiseHelpers.createSEPromise((aResolverId) => {
+    return PromiseHelpers.createSEPromise((resolverId) => {
       let promises = [];
-      // Close all children
       for (let session of this._sessions) {
         if (!session.isClosed) {
           promises.push(session.closeAll());
         }
       }
-      let resolver = PromiseHelpers.takePromiseResolver(aResolverId);
+
+      let resolver = PromiseHelpers.takePromiseResolver(resolverId);
       // Wait till all the promises are resolved
-      Promise.all([promises]).then(function resolved() {
+      Promise.all(promises).then(() => {
         this._sessions = [];
         resolver.resolve();
-      }.bind(this), function rejected(reason) {
+      }, (reason) => {
         resolver.reject(new Error(SE.ERROR_BADSTATE +
           " Unable to close all channels associated with this reader"));
       });
@@ -207,20 +204,13 @@ SESession.prototype = {
   openLogicalChannel: function openLogicalChannel(aid) {
     this._checkClosed();
 
-    if (!aid) {
-      // According to SIMalliance_OpenMobileAPI v4 spec, if the aid is null
-      // (in case of UICC) it is recommended to reject the opening of the logical
-      // channel without a specific AID.
-      if (this.reader.type === SE.TYPE_UICC) {
-        return PromiseHelpers.rejectWithSEError(SE.ERROR_GENERIC +
-               " AID is not specified!");
-      }
-    } else if (aid.length < SE.MIN_AID_LEN || aid.length > SE.MAX_AID_LEN) {
+    let aidLen = aid ? aid.length : 0;
+    if (aidLen < SE.MIN_AID_LEN || aidLen > SE.MAX_AID_LEN) {
       return PromiseHelpers.rejectWithSEError(SE.ERROR_GENERIC +
-             " Invalid AID length - " + aid.length);
+             " Invalid AID length - " + aidLen);
     }
 
-    return PromiseHelpers.createSEPromiseWithCtx(this, (aResolverId) => {
+    return PromiseHelpers.createSEPromise((resolverId) => {
       /**
        * @params for 'SE:OpenChannel'
        *
@@ -230,35 +220,34 @@ SESession.prototype = {
        * appId       : Current appId obtained from 'Principal' obj
        */
       cpmm.sendAsyncMessage("SE:OpenChannel", {
-        resolverId: aResolverId,
+        resolverId: resolverId,
         aid: aid,
         type: this.reader.type,
         appId: this._window.document.nodePrincipal.appId
       });
-    });
+    }, this);
   },
 
   closeAll: function closeAll() {
     this._checkClosed();
 
-    return PromiseHelpers.createSEPromise((aResolverId) => {
+    return PromiseHelpers.createSEPromise((resolverId) => {
       let promises = [];
-      // Close all children
       for (let channel of this._channels) {
         if (!channel.isClosed) {
           promises.push(channel.close());
         }
       }
-      let resolver = PromiseHelpers.takePromiseResolver(aResolverId);
-      // Wait till all the promises are resolved
-      Promise.all([promises]).then(function resolved() {
+
+      let resolver = PromiseHelpers.takePromiseResolver(resolverId);
+      Promise.all(promises).then(() => {
         this._isClosed = true;
         this._channels = [];
         // Notify parent of this session instance's closure, so that its
         // instance entry can be removed from the parent as well.
         this._reader.onSessionClose(this.__DOM_IMPL__);
         resolver.resolve();
-      }.bind(this), function rejected(reason) {
+      }, (reason) => {
         resolver.reject(new Error(SE.ERROR_BADSTATE +
           " Unable to close all channels associated with this session"));
       });
@@ -361,7 +350,7 @@ SEChannel.prototype = {
       le: command.le
     };
 
-    return PromiseHelpers.createSEPromiseWithCtx(this, (aResolverId) => {
+    return PromiseHelpers.createSEPromise((resolverId) => {
       /**
        * @params for 'SE:TransmitAPDU'
        *
@@ -373,19 +362,19 @@ SEChannel.prototype = {
        * appId       : Current appId obtained from 'Principal' obj
        */
       cpmm.sendAsyncMessage("SE:TransmitAPDU", {
-        resolverId: aResolverId,
+        resolverId: resolverId,
         apdu: commandAPDU,
         type: this.session.reader.type,
         channelToken: this._channelToken,
         appId: this._window.document.nodePrincipal.appId
       });
-    });
+    }, this);
   },
 
   close: function close() {
     this._checkClosed();
 
-    return PromiseHelpers.createSEPromiseWithCtx(this, (aResolverId) => {
+    return PromiseHelpers.createSEPromise((resolverId) => {
       /**
        * @params for 'SE:CloseChannel'
        *
@@ -396,12 +385,12 @@ SEChannel.prototype = {
        * appId       : Current appId obtained from 'Principal' obj
        */
       cpmm.sendAsyncMessage("SE:CloseChannel", {
-        resolverId: aResolverId,
+        resolverId: resolverId,
         type: this.session.reader.type,
         channelToken: this._channelToken,
         appId: this._window.document.nodePrincipal.appId
       });
-    });
+    }, this);
   },
 
   get session() {
@@ -530,7 +519,7 @@ SEManager.prototype = {
   },
 
   getSEReaders: function getSEReaders() {
-    return PromiseHelpers.createSEPromise((aResolverId) => {
+    return PromiseHelpers.createSEPromise((resolverId) => {
       /**
        * @params for 'SE:GetSEReaders'
        *
@@ -538,7 +527,7 @@ SEManager.prototype = {
        * appId       : Current appId obtained from 'Principal' obj
        */
       cpmm.sendAsyncMessage("SE:GetSEReaders", {
-        resolverId: aResolverId,
+        resolverId: resolverId,
         appId: this._window.document.nodePrincipal.appId
       });
     });
