@@ -43,25 +43,21 @@ PromiseHelpersSubclass.prototype = {
 
   _context: [],
 
-  createSEPromise: function createSEPromise(callback) {
-    return this.createPromise((resolve, reject) => {
-      let resolverId = this.getPromiseResolverId({
-        resolve: resolve,
-        reject: reject
-      });
-      callback(resolverId);
-    });
-  },
+  createSEPromise: function createSEPromise(callback, /* optional */ ctx) {
+    let ctxCallback = (resolverId) => {
+      if (ctx) {
+        this._context[resolverId] = ctx;
+      }
 
-  createSEPromiseWithCtx: function createSEPromiseWithCtx(ctx, callback) {
+      callback(resolverId);
+    };
+
     return this.createPromise((resolve, reject) => {
       let resolverId = this.getPromiseResolverId({
         resolve: resolve,
         reject: reject
       });
-      // Before calling the callback, save the context
-      this._context[resolverId] = ctx;
-      callback(resolverId);
+      ctxCallback(resolverId);
     });
   },
 
@@ -220,7 +216,7 @@ SESession.prototype = {
              " Invalid AID length - " + aid.length);
     }
 
-    return PromiseHelpers.createSEPromiseWithCtx(this, (resolverId) => {
+    return PromiseHelpers.createSEPromise((resolverId) => {
       /**
        * @params for 'SE:OpenChannel'
        *
@@ -235,7 +231,7 @@ SESession.prototype = {
         type: this.reader.type,
         appId: this._window.document.nodePrincipal.appId
       });
-    });
+    }, this);
   },
 
   closeAll: function closeAll() {
@@ -361,7 +357,7 @@ SEChannel.prototype = {
       le: command.le
     };
 
-    return PromiseHelpers.createSEPromiseWithCtx(this, (resolverId) => {
+    return PromiseHelpers.createSEPromise((resolverId) => {
       /**
        * @params for 'SE:TransmitAPDU'
        *
@@ -379,13 +375,13 @@ SEChannel.prototype = {
         channelToken: this._channelToken,
         appId: this._window.document.nodePrincipal.appId
       });
-    });
+    }, this);
   },
 
   close: function close() {
     this._checkClosed();
 
-    return PromiseHelpers.createSEPromiseWithCtx(this, (resolverId) => {
+    return PromiseHelpers.createSEPromise((resolverId) => {
       /**
        * @params for 'SE:CloseChannel'
        *
@@ -401,7 +397,7 @@ SEChannel.prototype = {
         channelToken: this._channelToken,
         appId: this._window.document.nodePrincipal.appId
       });
-    });
+    }, this);
   },
 
   get session() {
