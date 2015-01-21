@@ -66,6 +66,7 @@ PromiseHelpersSubclass.prototype = {
     if (!resolver) {
       return;
     }
+
     // Get the context associated with this resolverId
     let context = this._context[resolverId];
     delete this._context[resolverId];
@@ -129,18 +130,18 @@ SEReader.prototype = {
   closeAll: function closeAll() {
     return PromiseHelpers.createSEPromise((resolverId) => {
       let promises = [];
-      // Close all children
       for (let session of this._sessions) {
         if (!session.isClosed) {
           promises.push(session.closeAll());
         }
       }
+
       let resolver = PromiseHelpers.takePromiseResolver(resolverId);
       // Wait till all the promises are resolved
-      Promise.all([promises]).then(function resolved() {
+      Promise.all(promises).then(() => {
         this._sessions = [];
         resolver.resolve();
-      }.bind(this), function rejected(reason) {
+      }, (reason) => {
         resolver.reject(new Error(SE.ERROR_BADSTATE +
           " Unable to close all channels associated with this reader"));
       });
@@ -203,17 +204,10 @@ SESession.prototype = {
   openLogicalChannel: function openLogicalChannel(aid) {
     this._checkClosed();
 
-    if (!aid) {
-      // According to SIMalliance_OpenMobileAPI v4 spec, if the aid is null
-      // (in case of UICC) it is recommended to reject the opening of the logical
-      // channel without a specific AID.
-      if (this.reader.type === SE.TYPE_UICC) {
-        return PromiseHelpers.rejectWithSEError(SE.ERROR_GENERIC +
-               " AID is not specified!");
-      }
-    } else if (aid.length < SE.MIN_AID_LEN || aid.length > SE.MAX_AID_LEN) {
+    let aidLen = aid ? aid.length : 0;
+    if (aidLen < SE.MIN_AID_LEN || aidLen > SE.MAX_AID_LEN) {
       return PromiseHelpers.rejectWithSEError(SE.ERROR_GENERIC +
-             " Invalid AID length - " + aid.length);
+             " Invalid AID length - " + aidLen);
     }
 
     return PromiseHelpers.createSEPromise((resolverId) => {
@@ -239,22 +233,21 @@ SESession.prototype = {
 
     return PromiseHelpers.createSEPromise((resolverId) => {
       let promises = [];
-      // Close all children
       for (let channel of this._channels) {
         if (!channel.isClosed) {
           promises.push(channel.close());
         }
       }
+
       let resolver = PromiseHelpers.takePromiseResolver(resolverId);
-      // Wait till all the promises are resolved
-      Promise.all([promises]).then(function resolved() {
+      Promise.all(promises).then(() => {
         this._isClosed = true;
         this._channels = [];
         // Notify parent of this session instance's closure, so that its
         // instance entry can be removed from the parent as well.
         this._reader.onSessionClose(this.__DOM_IMPL__);
         resolver.resolve();
-      }.bind(this), function rejected(reason) {
+      }, (reason) => {
         resolver.reject(new Error(SE.ERROR_BADSTATE +
           " Unable to close all channels associated with this session"));
       });
