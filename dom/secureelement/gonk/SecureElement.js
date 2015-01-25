@@ -20,7 +20,7 @@
 /* globals dump, Components, XPCOMUtils, SE, Services, UiccConnector,
    SEUtils, ppmm, gMap, UUIDGenerator */
 
-const { interfaces: Ci, utils: Cu } = Components;
+const { classes: Cc, interfaces: Ci, utils: Cu } = Components;
 
 Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 Cu.import("resource://gre/modules/Services.jsm");
@@ -57,10 +57,6 @@ XPCOMUtils.defineLazyServiceGetter(this, "ppmm",
                                    "@mozilla.org/parentprocessmessagemanager;1",
                                    "nsIMessageBroadcaster");
 
-XPCOMUtils.defineLazyServiceGetter(this, "UiccConnector",
-                                   "@mozilla.org/secureelement/connector/uicc;1",
-                                   "nsISecureElementConnector");
-
 XPCOMUtils.defineLazyServiceGetter(this, "UUIDGenerator",
                                    "@mozilla.org/uuid-generator;1",
                                    "nsIUUIDGenerator");
@@ -68,13 +64,22 @@ XPCOMUtils.defineLazyServiceGetter(this, "UUIDGenerator",
 XPCOMUtils.defineLazyModuleGetter(this, "SEUtils",
                                   "resource://gre/modules/SEUtils.jsm");
 
+XPCOMUtils.defineLazyGetter(this, "UiccConnector", () => {
+  let uiccConnectorClass = Cc["@mozilla.org/secureelement/connector/uicc;1"];
+  if (uiccConnectorClass) {
+    return uiccConnectorClass.createInstance(Ci.nsISecureElementConnector);
+  }
+
+  return null;
+});
+
 function getConnector(type) {
   switch (type) {
     case SE.TYPE_UICC:
       return UiccConnector;
     case SE.TYPE_ESE:
     default:
-      debug("UnSupported SEConnector : " + type);
+      debug("Unsupported SEConnector : " + type);
       return null;
   }
 }
@@ -248,7 +253,11 @@ SecureElementManager.prototype = {
     // TODO 2: Bug 1118097 - According to OpenMobile spec, the reader names
     // should support slot based naming convention.
     // i;e; Instead of returning 'uicc', return 'uicc<slot#>'.
-    readerTypes.push(SE.TYPE_UICC);
+
+    if (UiccConnector) {
+      readerTypes.push(SE.TYPE_UICC);
+    }
+
     return readerTypes;
   },
 
@@ -265,6 +274,14 @@ SecureElementManager.prototype = {
 
     // TODO: Bug 1118098  - Integrate with ACE module
     let connector = getConnector(msg.type);
+    if (!connector) {
+      if (callback) {
+        callback({ error: SE.ERROR_NOTPRESENT });
+      }
+      debug("No SE connector available");
+      return;
+    }
+
     connector.openChannel(SEUtils.byteArrayToHexString(msg.aid), {
       notifyOpenChannelSuccess: (channelNumber, openResponse) => {
         // Add the new 'channel' to the map upon success
@@ -303,6 +320,14 @@ SecureElementManager.prototype = {
     }
 
     let connector = getConnector(msg.type);
+    if (!connector) {
+      if (callback) {
+        callback({ error: SE.ERROR_NOTPRESENT });
+      }
+      debug("No SE connector available");
+      return;
+    }
+
     connector.exchangeAPDU(channelNumber, msg.apdu.cla, msg.apdu.ins,
                            msg.apdu.p1, msg.apdu.p2,
                            SEUtils.byteArrayToHexString(msg.apdu.data),
@@ -339,6 +364,14 @@ SecureElementManager.prototype = {
     }
 
     let connector = getConnector(msg.type);
+    if (!connector) {
+      if (callback) {
+        callback({ error: SE.ERROR_NOTPRESENT });
+      }
+      debug("No SE connector available");
+      return;
+    }
+
     connector.closeChannel(channelNumber, {
       notifyCloseChannelSuccess: () => {
         gMap.removeChannel(msg.appId, channelNumber, msg.type);
@@ -380,6 +413,11 @@ SecureElementManager.prototype = {
     }
 
     let connector = getConnector(SE.TYPE_UICC);
+    if (!connector) {
+      debug("No SE connector available");
+      return;
+    }
+
     channelNumbers.forEach((channel) => {
       debug("Attempting to Close Channel #" + channel);
 

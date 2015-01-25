@@ -43,11 +43,9 @@ function debug(s) {
 XPCOMUtils.defineLazyModuleGetter(this, "SEUtils",
                                   "resource://gre/modules/SEUtils.jsm");
 
-#ifdef MOZ_B2G_RIL
 XPCOMUtils.defineLazyServiceGetter(this, "iccProvider",
                                    "@mozilla.org/ril/content-helper;1",
                                    "nsIIccProvider");
-#endif
 
 const UICCCONNECTOR_CONTRACTID =
   "@mozilla.org/secureelement/connector/uicc;1";
@@ -86,21 +84,17 @@ UiccConnector.prototype = {
 
   _init: function() {
     Services.obs.addObserver(this, NS_XPCOM_SHUTDOWN_OBSERVER_ID, false);
-#ifdef MOZ_B2G_RIL
     iccProvider.registerIccMsg(PREFERRED_UICC_CLIENTID, this);
 
     // Update the state in order to avoid race condition.
     // By this time, 'notifyCardStateChanged (with proper card state)'
     // may have occurred already before this module initialization.
     this._updatePresenceState();
-#endif
   },
 
   _shutdown: function() {
     Services.obs.removeObserver(this, NS_XPCOM_SHUTDOWN_OBSERVER_ID);
-#ifdef MOZ_B2G_RIL
     iccProvider.unregisterIccMsg(PREFERRED_UICC_CLIENTID, this);
-#endif
   },
 
   _updatePresenceState: function() {

@@ -18,10 +18,6 @@ if CONFIG['MOZ_WIDGET_TOOLKIT'] == 'gonk' and CONFIG['MOZ_SECUREELEMENT']:
         'gonk/SecureElement.js',
         'gonk/SecureElement.manifest',
     ]
-    EXTRA_PP_COMPONENTS += [
-        'gonk/UiccConnector.js',
-        'gonk/UiccConnector.manifest',
-    ]
     XPIDL_SOURCES += [
         'gonk/nsISecureElementConnector.idl',
     ]
@@ -31,6 +27,12 @@ if CONFIG['MOZ_WIDGET_TOOLKIT'] == 'gonk' and CONFIG['MOZ_SECUREELEMENT']:
     ]
     XPCSHELL_TESTS_MANIFESTS += [
         'tests/unit/xpcshell.ini'
+    ]
+
+if CONFIG['MOZ_WIDGET_TOOLKIT'] == 'gonk' and CONFIG['MOZ_SECUREELEMENT'] and CONFIG['MOZ_B2G_RIL']:
+    EXTRA_COMPONENTS += [
+        'gonk/UiccConnector.js',
+        'gonk/UiccConnector.manifest',
     ]
 
 FAIL_ON_WARNINGS = True
