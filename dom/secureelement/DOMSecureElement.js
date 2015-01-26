@@ -364,7 +364,6 @@ SEChannel.prototype = {
       cpmm.sendAsyncMessage("SE:TransmitAPDU", {
         resolverId: resolverId,
         apdu: commandAPDU,
-        type: this.session.reader.type,
         channelToken: this._channelToken,
         appId: this._window.document.nodePrincipal.appId
       });
@@ -386,7 +385,6 @@ SEChannel.prototype = {
        */
       cpmm.sendAsyncMessage("SE:CloseChannel", {
         resolverId: resolverId,
-        type: this.session.reader.type,
         channelToken: this._channelToken,
         appId: this._window.document.nodePrincipal.appId
       });
