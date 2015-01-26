@@ -110,7 +110,7 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
     appInfoMap: {},
 
     registerSecureElementTarget: function(appId, readers, target) {
-      if (appId in this.appInfoMap) {
+      if (this.appInfoMap[appId]) {
         debug("Already registered SE target! appId:" + appId);
         return;
       }
@@ -125,7 +125,7 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
     },
 
     unregisterSecureElementTarget: function(appId) {
-      if (appId in this.appInfoMap) {
+      if (this.appInfoMap[appId]) {
         debug("Unregistered SE Target for AppId : " + appId);
         delete this.appInfoMap[appId];
       }
@@ -151,7 +151,7 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
     // Add channel to the appId. Upon successfully adding the entry
     // this function will return the 'token'
     addChannel: function(appId, type, aid, channelNumber) {
-      if (!(appId in this.appInfoMap)) {
+      if (!this.appInfoMap[appId]) {
         debug("Unable to add channel, no such appId: " + appId);
         return null;
       }
@@ -183,8 +183,8 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
 
     // Get the 'channel' associated with (appId, channelToken)
     getChannelNumber: function(appId, channelToken) {
-      if (!(appId in this.appInfoMap) ||
-          !(channelToken in this.appInfoMap[appId].channels)) {
+      if (!this.appInfoMap[appId] ||
+          !this.appInfoMap[appId].channels[channelToken]) {
         return null;
       }
 
@@ -287,13 +287,15 @@ SecureElementManager.prototype = {
         // Add the new 'channel' to the map upon success
         let channelToken =
           gMap.addChannel(msg.appId, msg.type, msg.aid, channelNumber);
-        if (callback) {
+        if (callback && channelToken) {
           callback({
             error: SE.ERROR_NONE,
             channelToken: channelToken,
             isBasicChannel: (channelNumber === SE.BASIC_CHANNEL),
             openResponse: SEUtils.hexStringToByteArray(openResponse)
           });
+        } else if(callback && !channelToken) {
+          callback({ error: SE.ERROR_GENERIC });
         }
       },
 
