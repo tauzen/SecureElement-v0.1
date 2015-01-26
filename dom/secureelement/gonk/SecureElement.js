@@ -262,23 +262,18 @@ SecureElementManager.prototype = {
   },
 
   handleOpenChannel: function(msg, callback) {
-    // Perform Sanity Checks!
     if (gMap.getChannelCountByAppIdType(msg.appId, msg.type) >=
         SE.MAX_CHANNELS_ALLOWED_PER_SESSION) {
       debug("Max channels per session exceed !!!");
-      if (callback) {
-        callback({ error: SE.ERROR_GENERIC });
-      }
+      callback({ error: SE.ERROR_GENERIC });
       return;
     }
 
     // TODO: Bug 1118098  - Integrate with ACE module
     let connector = getConnector(msg.type);
     if (!connector) {
-      if (callback) {
-        callback({ error: SE.ERROR_NOTPRESENT });
-      }
       debug("No SE connector available");
+      callback({ error: SE.ERROR_NOTPRESENT });
       return;
     }
 
@@ -287,14 +282,14 @@ SecureElementManager.prototype = {
         // Add the new 'channel' to the map upon success
         let channelToken =
           gMap.addChannel(msg.appId, msg.type, msg.aid, channelNumber);
-        if (callback && channelToken) {
+        if (channelToken) {
           callback({
             error: SE.ERROR_NONE,
             channelToken: channelToken,
             isBasicChannel: (channelNumber === SE.BASIC_CHANNEL),
             openResponse: SEUtils.hexStringToByteArray(openResponse)
           });
-        } else if(callback && !channelToken) {
+        } else {
           callback({ error: SE.ERROR_GENERIC });
         }
       },
@@ -303,9 +298,7 @@ SecureElementManager.prototype = {
         debug("Failed to open the channel to AID : " +
                SEUtils.byteArrayToHexString(msg.aid) +
                ", Rejected with Reason : " + reason);
-        if (callback) {
-          callback({ error: SE.ERROR_GENERIC, reason: reason, response: [] });
-        }
+        callback({ error: SE.ERROR_GENERIC, reason: reason, response: [] });
       }
     });
   },
@@ -315,18 +308,14 @@ SecureElementManager.prototype = {
 
     if (!channelNumber) {
       debug("Invalid token:" + msg.channelToken + ", appId: " + msg.appId);
-      if (callback) {
-        callback({ error: SE.ERROR_GENERIC });
-      }
+      callback({ error: SE.ERROR_GENERIC });
       return;
     }
 
     let connector = getConnector(msg.type);
     if (!connector) {
-      if (callback) {
-        callback({ error: SE.ERROR_NOTPRESENT });
-      }
       debug("No SE connector available");
+      callback({ error: SE.ERROR_NOTPRESENT });
       return;
     }
 
@@ -335,21 +324,17 @@ SecureElementManager.prototype = {
                            SEUtils.byteArrayToHexString(msg.apdu.data),
                            msg.apdu.le, {
       notifyExchangeAPDUResponse: (sw1, sw2, response) => {
-        if (callback) {
-          callback({
-            error: SE.ERROR_NONE,
-            sw1: sw1,
-            sw2: sw2,
-            response: SEUtils.hexStringToByteArray(response)
-          });
-        }
+        callback({
+          error: SE.ERROR_NONE,
+          sw1: sw1,
+          sw2: sw2,
+          response: SEUtils.hexStringToByteArray(response)
+        });
       },
 
       notifyError: (reason) => {
         debug("Transmit failed, rejected with Reason : " + reason);
-        if (callback) {
-          callback({ error: SE.ERROR_INVALIDAPPLICATION, reason: reason });
-        }
+        callback({ error: SE.ERROR_INVALIDAPPLICATION, reason: reason });
       }
     });
   },
@@ -359,35 +344,27 @@ SecureElementManager.prototype = {
 
     if (!channelNumber) {
       debug("Invalid token:" + msg.channelToken + ", appId:" + msg.appId);
-      if (callback) {
-        callback({ error: SE.ERROR_GENERIC });
-      }
+      callback({ error: SE.ERROR_GENERIC });
       return;
     }
 
     let connector = getConnector(msg.type);
     if (!connector) {
-      if (callback) {
-        callback({ error: SE.ERROR_NOTPRESENT });
-      }
       debug("No SE connector available");
+      callback({ error: SE.ERROR_NOTPRESENT });
       return;
     }
 
     connector.closeChannel(channelNumber, {
       notifyCloseChannelSuccess: () => {
         gMap.removeChannel(msg.appId, channelNumber, msg.type);
-        if (callback) {
-          callback({ error: SE.ERROR_NONE });
-        }
+        callback({ error: SE.ERROR_NONE });
       },
 
       notifyError: (reason) => {
         debug("Failed to close channel: " + channelNumber +
               ", reason: "+ reason);
-        if (callback) {
-          callback({ error: SE.ERROR_BADSTATE, reason: reason });
-        }
+        callback({ error: SE.ERROR_BADSTATE, reason: reason });
       }
     });
   },
