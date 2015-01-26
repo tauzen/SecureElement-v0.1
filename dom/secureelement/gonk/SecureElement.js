@@ -460,8 +460,8 @@ SecureElementManager.prototype = {
 
   sendSEResponse: function(msg, result) {
     let promiseStatus = (result.error === SE.ERROR_NONE) ? "Resolved" : "Rejected";
-    let options = { result: result, metadata: msg.data };
-    msg.target.sendAsyncMessage(msg.name + promiseStatus, options);
+    result.resolverId = msg.data.resolverId;
+    msg.target.sendAsyncMessage(msg.name + promiseStatus, {result: result});
   },
 
   /**
