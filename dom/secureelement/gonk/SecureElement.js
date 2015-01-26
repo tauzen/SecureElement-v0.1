@@ -165,19 +165,11 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
       return token;
     },
 
-    // Remove the given channel entry based on type.
-    // Note that channel will be unique per type
-    removeChannel: function(appId, channelNumber, type) {
-      let channels = this.appInfoMap[appId].channels;
-      let token = Object.keys(channels).find((ch) => {
-        return channels[ch].channelNumber === channelNumber &&
-               channels[ch].seType === type;
-      });
-
-      if (token) {
-        debug("Deleting channel with token : " + token +
-              ",  channel : " +  channelNumber);
-        delete channels[token];
+    removeChannel: function(appId, channelToken) {
+      if(this.appInfoMap[appId] &&
+         this.appInfoMap[appId].channels[channelToken]) {
+        debug("Deleting channel with token : " + channelToken);
+        delete this.appInfoMap[appId].channels[channelToken];
       }
     },
 
@@ -357,7 +349,7 @@ SecureElementManager.prototype = {
 
     connector.closeChannel(channelNumber, {
       notifyCloseChannelSuccess: () => {
-        gMap.removeChannel(msg.appId, channelNumber, msg.type);
+        gMap.removeChannel(msg.appId, msg.channelToken);
         callback({ error: SE.ERROR_NONE });
       },
 
