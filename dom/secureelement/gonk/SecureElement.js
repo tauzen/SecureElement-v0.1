@@ -181,7 +181,7 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
       }
     },
 
-    // Get the 'channel' associated with (appId, channelToken)
+    // Get the channel number associated with (appId, channelToken)
     getChannelNumber: function(appId, channelToken) {
       if (!this.appInfoMap[appId] ||
           !this.appInfoMap[appId].channels[channelToken]) {
