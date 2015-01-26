@@ -411,6 +411,7 @@ SecureElementManager.prototype = {
     let channelNumbers = gMap.getChannelNumbersByAppIdType(appId, SE.TYPE_UICC);
     if (channelNumbers.length === 0) {
       debug("No channels to close.");
+      gMap.unregisterSecureElementTarget(appId);
       return;
     }
 
