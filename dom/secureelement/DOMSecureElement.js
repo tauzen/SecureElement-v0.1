@@ -535,13 +535,12 @@ SEManager.prototype = {
 
   receiveMessage: function receiveMessage(message) {
     let result = message.data.result;
-    let data = message.data.metadata;
     let chromeObj = null;
     let contentObj = null;
     let resolver = null;
     let context = null;
 
-    let promiseResolver = PromiseHelpers.takePromise(data.resolverId);
+    let promiseResolver = PromiseHelpers.takePromise(result.resolverId);
     if (promiseResolver) {
       resolver = promiseResolver.resolver;
       // This 'context' is the instance that originated this IPC message.
@@ -594,7 +593,7 @@ SEManager.prototype = {
       case "SE:OpenChannelRejected":
       case "SE:CloseChannelRejected":
       case "SE:TransmitAPDURejected":
-        let error = data.error || SE.ERROR_GENERIC;
+        let error = result.error || SE.ERROR_GENERIC;
         resolver.reject(error);
         break;
       default:
