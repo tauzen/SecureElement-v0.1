@@ -65,12 +65,8 @@ XPCOMUtils.defineLazyModuleGetter(this, "SEUtils",
                                   "resource://gre/modules/SEUtils.jsm");
 
 XPCOMUtils.defineLazyGetter(this, "UiccConnector", () => {
-  let uiccConnectorClass = Cc["@mozilla.org/secureelement/connector/uicc;1"];
-  if (uiccConnectorClass) {
-    return uiccConnectorClass.createInstance(Ci.nsISecureElementConnector);
-  }
-
-  return null;
+  let uiccClass = Cc["@mozilla.org/secureelement/connector/uicc;1"];
+  return uiccClass ? uiccClass.createInstance(Ci.nsISecureElementConnector) : null;
 });
 
 function getConnector(type) {
@@ -129,22 +125,23 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
         return this.appInfoMap[id].target === target;
       });
 
-      if (appId) {
-        debug("Unregistered SE Target for AppId: " + appId);
-        delete this.appInfoMap[appId];
+      if (!appId) {
+        return;
       }
+
+      debug("Unregistered SE Target for AppId: " + appId);
+      delete this.appInfoMap[appId];
     },
 
     getChannelCountByAppIdType: function(appId, type) {
       let aInfo = this.appInfoMap[appId];
       if (!aInfo) {
         debug("Unable to get channels : " + appId);
-        return [];
+        return 0;
       }
 
       return Object.keys(aInfo.channels)
-                   .filter(c => type ? aInfo.channels[c].seType === type : true)
-                   .length;
+                   .reduce((cnt, ch) => ch.type === type ? ++cnt : cnt, 0);
     },
 
     // Add channel to the appId. Upon successfully adding the entry
@@ -165,7 +162,7 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
     },
 
     removeChannel: function(appId, channelToken) {
-      if(this.appInfoMap[appId] &&
+      if (this.appInfoMap[appId] &&
          this.appInfoMap[appId].channels[channelToken]) {
         debug("Deleting channel with token : " + channelToken);
         delete this.appInfoMap[appId].channels[channelToken];
@@ -300,7 +297,6 @@ SecureElementManager.prototype = {
 
   handleTransmit: function(msg, callback) {
     let channel = gMap.getChannel(msg.appId, msg.channelToken);
-
     if (!channel) {
       debug("Invalid token:" + msg.channelToken + ", appId: " + msg.appId);
       callback({ error: SE.ERROR_GENERIC });
@@ -336,7 +332,6 @@ SecureElementManager.prototype = {
 
   handleCloseChannel: function(msg, callback) {
     let channel = gMap.getChannel(msg.appId, msg.channelToken);
-
     if (!channel) {
       debug("Invalid token:" + msg.channelToken + ", appId:" + msg.appId);
       callback({ error: SE.ERROR_GENERIC });
