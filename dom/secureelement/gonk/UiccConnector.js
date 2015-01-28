@@ -111,13 +111,14 @@ UiccConnector.prototype = {
                       notReadyStates.indexOf(cardState) == -1;
   },
 
+  // See GP Spec, 11.1.4 Class Byte Coding
   _setChannelToClassByte: function(cla, channel) {
-    if (channel < 4) {
+    if (channel < SE.LOGICAL_CHANNEL_NUMBER_LIMIT) {
       // b7 = 0 indicates the first interindustry class byte coding
-      cla = (((cla & 0x9C) & 0xFF) |  channel);
-    } else if (channel < 20) {
+      cla = (cla & 0x9C) & 0xFF | channel;
+    } else if (channel < SE.SUPPLEMENTARY_LOGICAL_CHANNEL_NUMBER_LIMIT) {
       // b7 = 1 indicates the further interindustry class byte coding
-      cla = (((cla & 0xB0) & 0xFF) | 0x40 | (channel - 4));
+      cla = (cla & 0xB0) & 0xFF | 0x40 | (channel - SE.LOGICAL_CHANNEL_NUMBER_LIMIT);
     } else {
       debug("Channel number must be within [0..19]");
       return SE.ERROR_GENERIC;
@@ -250,7 +251,6 @@ UiccConnector.prototype = {
       return;
     }
 
-    // See GP Spec, 11.1.4 Class Byte Coding
     cla = this._setChannelToClassByte(cla, channel);
     let appendLe = (data !== null) && (le !== -1);
     // Note that P3 of the C-TPDU is set to ‘00’ in Case 1
