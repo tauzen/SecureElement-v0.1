@@ -108,7 +108,7 @@ UiccConnector.prototype = {
     ];
     let cardState = iccProvider.getCardState(PREFERRED_UICC_CLIENTID);
     this._isPresent = cardState !== null &&
-      notReadyStates.indexOf(cardState) == -1;
+                      notReadyStates.indexOf(cardState) == -1;
   },
 
   _setChannelToClassByte: function(cla, channel) {
@@ -123,22 +123,6 @@ UiccConnector.prototype = {
       return SE.ERROR_GENERIC;
     }
     return cla;
-  },
-
-  _getChannelNumber: function(cla) {
-    // As per GlobalPlatform Card Specification v2.2, check the 7th bit
-    let classByteCoding = (cla & 0x40);
-    if (classByteCoding === 0x00) {
-      // If 7 th bit is not set, then channel number is encoded in the 2 
-      // rightmost bits Refer to section 11.1.4.1. Possible logical channel 
-      // are: (00: 0, 01 : 1, 10 : 2, 11 : 3)
-      return cla & 0x03;
-    } else {
-      // If the 7th bit is set, channel number is encoded in the 4 rightmost
-      // bits, refer to section 11.1.4.2. Note that Supplementary Logical
-      // Channels start from 4 to 19. So add 4!
-      return (cla & 0x0F) + 4;
-    }
   },
 
   _doGetOpenResponse: function(channel, length, callback) {
