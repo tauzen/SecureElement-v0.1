@@ -53,6 +53,8 @@ this.DATA_BYTE_OFFSET = 5;
 this.MIN_AID_LEN = 5;
 this.MAX_AID_LEN = 16;
 
+this.CLA_GET_RESPONSE = 0x00;
+
 this.INS_SELECT = 0xA4;
 this.INS_MANAGE_CHANNEL = 0x70;
 this.INS_GET_RESPONSE = 0xC0;

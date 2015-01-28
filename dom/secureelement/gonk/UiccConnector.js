@@ -112,7 +112,7 @@ UiccConnector.prototype = {
   },
 
   // See GP Spec, 11.1.4 Class Byte Coding
-  _setChannelToClassByte: function(cla, channel) {
+  _setChannelToCLAByte: function(cla, channel) {
     if (channel < SE.LOGICAL_CHANNEL_NUMBER_LIMIT) {
       // b7 = 0 indicates the first interindustry class byte coding
       cla = (cla & 0x9C) & 0xFF | channel;
@@ -129,8 +129,9 @@ UiccConnector.prototype = {
   _doGetOpenResponse: function(channel, length, callback) {
     // Le value is set. It means that this is a request for all available
     // response bytes.
-    this.exchangeAPDU(channel, (channel & 0xFF), SE.INS_GET_RESPONSE,
-                        0x00, 0x00, null, length, {
+    let cla = this._setChannelToCLAByte(SE.CLA_GET_RESPONSE, channel);
+    this.exchangeAPDU(channel, cla, SE.INS_GET_RESPONSE, 0x00, 0x00,
+                      null, length, {
       notifyExchangeAPDUResponse: function(sw1, sw2, response) {
         debug("GET Response : " + response);
         if (callback) {
@@ -154,8 +155,8 @@ UiccConnector.prototype = {
   },
 
   _doIccExchangeAPDU: function(channel, cla, ins, p1, p2, p3,
-                               data, appendResponse, callback) {
-    iccProvider.iccExchangeAPDU(PREFERRED_UICC_CLIENTID, channel, (cla & 0xFC),
+                               data, appendResp, callback) {
+    iccProvider.iccExchangeAPDU(PREFERRED_UICC_CLIENTID, channel, cla & 0xFC,
                                 ins, p1, p2, p3, data, {
       notifyExchangeAPDUResponse: (sw1, sw2, response) => {
         debug("sw1 : " + sw1 + ", sw2 : " + sw2 + ", response : " + response);
@@ -185,10 +186,12 @@ UiccConnector.prototype = {
           // Recursive, with GET RESPONSE bytes and '0x61' procedure IS
           // interested in appended responses.
           // Pass appended response and note that p3=sw2.
-          this._doIccExchangeAPDU(channel, (channel & 0xFF),
-            SE.INS_GET_RESPONSE, 0x00, 0x00, sw2, null,
-            (response ? response + appendResponse : appendResponse),
-            callback);
+          let claWithChannel = this._setChannelToCLAByte(SE.CLA_GET_RESPONSE,
+                                                         channel);
+          this._doIccExchangeAPDU(channel, claWithChannel, SE.INS_GET_RESPONSE,
+                                  0x00, 0x00, sw2, null,
+                                  (response ? response + appendResp : appendResp),
+                                  callback);
         } else if (callback) {
           callback.notifyExchangeAPDUResponse(sw1, sw2, response);
         }
@@ -251,7 +254,7 @@ UiccConnector.prototype = {
       return;
     }
 
-    cla = this._setChannelToClassByte(cla, channel);
+    cla = this._setChannelToCLAByte(cla, channel);
     let appendLe = (data !== null) && (le !== -1);
     // Note that P3 of the C-TPDU is set to ‘00’ in Case 1
     // (only headers) scenarios
