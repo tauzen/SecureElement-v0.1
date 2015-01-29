@@ -67,7 +67,7 @@ XPCOMUtils.defineLazyModuleGetter(this, "SEUtils",
 XPCOMUtils.defineLazyGetter(this, "UiccConnector", () => {
   let uiccConnectorClass = Cc["@mozilla.org/secureelement/connector/uicc;1"];
   if (uiccConnectorClass) {
-    return uiccConnectorClass.createInstance(Ci.nsISecureElementConnector);
+    return uiccConnectorClass.getService(Ci.nsISecureElementConnector);
   }
 
   return null;

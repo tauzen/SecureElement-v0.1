@@ -107,6 +107,7 @@ UiccConnector.prototype = {
       "permanentBlocked",
     ];
     let cardState = iccProvider.getCardState(PREFERRED_UICC_CLIENTID);
+    debug("secure card state is " + cardState);
     this._isPresent = cardState !== null &&
                       notReadyStates.indexOf(cardState) == -1;
   },
@@ -304,6 +305,7 @@ UiccConnector.prototype = {
   notifyIccInfoChanged: function() {},
 
   notifyCardStateChanged: function() {
+    debug("secure card state changed");
     this._updatePresenceState();
   },
 
