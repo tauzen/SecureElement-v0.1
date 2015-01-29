@@ -25,14 +25,11 @@ Cu.import("resource://gre/modules/Task.jsm");
 Cu.import("resource://gre/modules/systemlibs.js");
 
 XPCOMUtils.defineLazyServiceGetter(this, "UiccConnector",
-                                   "@mozilla.org/secureelement/connector;1",
+                                   "@mozilla.org/secureelement/connector/uicc;1",
                                    "nsISecureElementConnector");
 
 XPCOMUtils.defineLazyModuleGetter(this, "SEUtils",
                                   "resource://gre/modules/SEUtils.jsm");
-
-// TODO remove once UiccConnector will be updated to manage the sim slot
-const SIM_SLOT = libcutils.property_get("ro.moz.se.def_client_id", "0");
 
 /*
  * Based on [1] - "GlobalPlatform Device Technology
@@ -127,7 +124,7 @@ GPAccessRulesManager.prototype = {
     }
 
     return new Promise((resolve, reject) => {
-      UiccConnector.openChannel(SIM_SLOT, this.PKCS_AID, {
+      UiccConnector.openChannel(this.PKCS_AID, {
         notifyOpenChannelSuccess: (channel, openResponse) => {
           debug("_openChannel/notifyOpenChannelSuccess: Channel " + channel +
                 " opened, open response: " + openResponse);
@@ -150,7 +147,7 @@ GPAccessRulesManager.prototype = {
     }
 
     return new Promise((resolve, reject) => {
-      UiccConnector.closeChannel(SIM_SLOT, this.channel, {
+      UiccConnector.closeChannel(this.channel, {
         notifyCloseChannelSuccess: () => {
           debug("_closeChannel/notifyCloseChannelSuccess: chanel " +
                 this.channel + " closed");
@@ -174,7 +171,7 @@ GPAccessRulesManager.prototype = {
 
     let apdu = this._bytesToAPDU(bytes);
     return new Promise((resolve, reject) => {
-      UiccConnector.exchangeAPDU(SIM_SLOT, this.channel, apdu.cla,
+      UiccConnector.exchangeAPDU(this.channel, apdu.cla,
         apdu.ins, apdu.p1, apdu.p2, apdu.data, apdu.le,
         {
           notifyExchangeAPDUResponse: (sw1, sw2, data) => {
