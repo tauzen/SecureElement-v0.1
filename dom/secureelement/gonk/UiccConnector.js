@@ -210,7 +210,7 @@ UiccConnector.prototype = {
    */
 
   /**
-   * Opens a supplementary channel on a default clientId
+   * Opens a channel on a default clientId
    */
   openChannel: function(aid, callback) {
     if (!this._isPresent) {
@@ -253,34 +253,17 @@ UiccConnector.prototype = {
     }
 
     cla = this._setChannelToCLAByte(cla, channel);
-    let appendLe = (data !== null) && (le !== -1);
-    // Note that P3 of the C-TPDU is set to ‘00’ in Case 1
-    // (only headers) scenarios
-    let p3 = data ? data.length : (le !== -1 ? le : 0x00);
-    let commandApduData = null;
+    let lc = data ? data.length/2 : 0;
+    let p3 = lc || le;
 
-    // Check p3 > 0 AND the command.data length > 0. The second condition is
-    // needed to explicitly check if there are 'data bytes' indeed. If there
-    // are no 'data bytes' then 'p3' will be interpreted as 'Le'.
-    if ((p3 > 0) && (data.length > 0)) {
-      commandApduData = new Uint8Array(p3);
-      let offset = 0;
-      while (offset < SE.MAX_APDU_LEN && offset < p3) {
-        commandApduData[offset] = data[offset];
-        offset++;
-      }
-    }
-    if (commandApduData && appendLe) {
-      // Append 'le' value to data
-      let leHexStr =
-        SEUtils.byteArrayToHexString([le & 0xFF, (le >> 8) & 0xFF]);
-      commandApduData += leHexStr;
+    if (lc && le !== -1) {
+      data += SEUtils.byteArrayToHexString([le]);
     }
 
     // Pass empty response '' as args as we are not interested in appended
     // responses yet!
     debug("exchangeAPDU on Channel # " + channel);
-    this._doIccExchangeAPDU(channel, cla, ins, p1, p2, p3/2, data, "",
+    this._doIccExchangeAPDU(channel, cla, ins, p1, p2, p3, data, "",
                             callback);
   },
 
