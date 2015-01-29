@@ -166,28 +166,26 @@ UiccConnector.prototype = {
         // Note that 'Procedure bytes'are special cases.
         // There is no need to handle '0x60' procedure byte as it implies
         // no-action from SE stack perspective. This procedure byte is not
-        // notified to application layer (?).
+        // notified to application layer.
         if (sw1 === 0x6C) {
           // Use the previous command header with length as second procedure
           // byte (SW2) as received and repeat the procedure.
-          debug("Enforce '0x6C' Procedure with sw2 : " + sw2);
 
           // Recursive! and Pass empty response '' as args, since '0x6C'
           // procedure does not have to deal with appended responses.
           this._doIccExchangeAPDU(channel, cla, ins, p1, p2,
                                   sw2, data, "", callback);
         } else if (sw1 === 0x61) {
-          debug("Enforce '0x61' Procedure with sw2 : " + sw2);
           // Since the terminal waited for a second procedure byte and
           // received it (sw2), send a GET RESPONSE command header to the UICC
           // with a maximum length of 'XX', where 'XX' is the value of the
           // second procedure byte (SW2).
 
-          // Recursive, with GET RESPONSE bytes and '0x61' procedure IS
-          // interested in appended responses.
-          // Pass appended response and note that p3=sw2.
           let claWithChannel = this._setChannelToCLAByte(SE.CLA_GET_RESPONSE,
                                                          channel);
+
+          // Recursive, with GET RESPONSE bytes and '0x61' procedure IS interested
+          // in appended responses. Pass appended response and note that p3=sw2.
           this._doIccExchangeAPDU(channel, claWithChannel, SE.INS_GET_RESPONSE,
                                   0x00, 0x00, sw2, null,
                                   (response ? response + appendResp : appendResp),
