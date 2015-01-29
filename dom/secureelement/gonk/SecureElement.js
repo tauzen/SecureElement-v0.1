@@ -106,11 +106,6 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
     appInfoMap: {},
 
     registerSecureElementTarget: function(appId, readerTypes, target) {
-      if (this.appInfoMap[appId]) {
-        debug("Already registered SE target! appId:" + appId);
-        return;
-      }
-
       this.appInfoMap[appId] = {
         target: target,
         readerTypes: readerTypes,
@@ -133,25 +128,23 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
       delete this.appInfoMap[appId];
     },
 
+    isAppIdRegistered: function(appId) {
+      return this.appInfoMap[appId] !== undefined;
+    },
+
     getChannelCountByAppIdType: function(appId, type) {
-      let aInfo = this.appInfoMap[appId];
-      if (!aInfo) {
+      if (!this.isAppIdRegistered(appId)) {
         debug("Unable to get channels : " + appId);
         return 0;
       }
 
-      return Object.keys(aInfo.channels)
+      return Object.keys(this.appInfoMap[appId].channels)
                    .reduce((cnt, ch) => ch.type === type ? ++cnt : cnt, 0);
     },
 
     // Add channel to the appId. Upon successfully adding the entry
     // this function will return the 'token'
     addChannel: function(appId, type, aid, channelNumber) {
-      if (!this.appInfoMap[appId]) {
-        debug("Unable to add channel, no such appId: " + appId);
-        return null;
-      }
-
       let token = UUIDGenerator.generateUUID().toString();
       this.appInfoMap[appId].channels[token] = {
         seType: type,
@@ -162,16 +155,14 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
     },
 
     removeChannel: function(appId, channelToken) {
-      if (this.appInfoMap[appId] &&
-         this.appInfoMap[appId].channels[channelToken]) {
+      if (this.appInfoMap[appId].channels[channelToken]) {
         debug("Deleting channel with token : " + channelToken);
         delete this.appInfoMap[appId].channels[channelToken];
       }
     },
 
     getChannel: function(appId, channelToken) {
-      if (!this.appInfoMap[appId] ||
-          !this.appInfoMap[appId].channels[channelToken]) {
+      if (!this.appInfoMap[appId].channels[channelToken]) {
         return null;
       }
 
@@ -396,6 +387,17 @@ SecureElementManager.prototype = {
     gMap.unregisterSecureElementTarget(target);
   },
 
+  sendSEResponse: function(msg, result) {
+    let promiseStatus = (result.error === SE.ERROR_NONE) ? "Resolved" : "Rejected";
+    result.resolverId = msg.data.resolverId;
+    msg.target.sendAsyncMessage(msg.name + promiseStatus, {result: result});
+  },
+
+  _isValidMessage: function(msg) {
+    let appIdValid = gMap.isAppIdRegistered(msg.data.appId);
+    return msg.name === "SE:GetSEReaders" ? !appIdValid : appIdValid;
+  },
+
   /**
    * nsIMessageListener interface methods.
    */
@@ -421,6 +423,12 @@ SecureElementManager.prototype = {
     }
 
     let callback = (result) => this.sendSEResponse(msg, result);
+    if (!this._isValidMessage(msg)) {
+      debug("Message not valid");
+      callback({ error: SE.ERROR_GENERIC });
+      return null;
+    }
+
     switch (msg.name) {
       case "SE:GetSEReaders":
         this.handleGetSEReadersRequest(msg.data, msg.target, callback);
@@ -436,12 +444,6 @@ SecureElementManager.prototype = {
         break;
     }
     return null;
-  },
-
-  sendSEResponse: function(msg, result) {
-    let promiseStatus = (result.error === SE.ERROR_NONE) ? "Resolved" : "Rejected";
-    result.resolverId = msg.data.resolverId;
-    msg.target.sendAsyncMessage(msg.name + promiseStatus, {result: result});
   },
 
   /**
