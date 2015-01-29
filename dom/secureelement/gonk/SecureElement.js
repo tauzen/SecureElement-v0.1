@@ -26,7 +26,7 @@ Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource://gre/modules/systemlibs.js");
 
-XPCOMUtils.defineLazyGetter(this, "SE", function() {
+XPCOMUtils.defineLazyGetter(this, "SE", () => {
   let obj = {};
   Cu.import("resource://gre/modules/se_consts.js", obj);
   return obj;
@@ -66,7 +66,7 @@ XPCOMUtils.defineLazyModuleGetter(this, "SEUtils",
 
 XPCOMUtils.defineLazyGetter(this, "UiccConnector", () => {
   let uiccClass = Cc["@mozilla.org/secureelement/connector/uicc;1"];
-  return uiccClass ? uiccClass.createInstance(Ci.nsISecureElementConnector) : null;
+  return uiccClass ? uiccClass.getService(Ci.nsISecureElementConnector) : null;
 });
 
 function getConnector(type) {
