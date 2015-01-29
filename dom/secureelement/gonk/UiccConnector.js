@@ -108,16 +108,17 @@ UiccConnector.prototype = {
     ];
     let cardState = iccProvider.getCardState(PREFERRED_UICC_CLIENTID);
     this._isPresent = cardState !== null &&
-      notReadyStates.indexOf(cardState) == -1;
+                      notReadyStates.indexOf(cardState) == -1;
   },
 
-  _setChannelToClassByte: function(cla, channel) {
-    if (channel < 4) {
+  // See GP Spec, 11.1.4 Class Byte Coding
+  _setChannelToCLAByte: function(cla, channel) {
+    if (channel < SE.LOGICAL_CHANNEL_NUMBER_LIMIT) {
       // b7 = 0 indicates the first interindustry class byte coding
-      cla = (((cla & 0x9C) & 0xFF) |  channel);
-    } else if (channel < 20) {
+      cla = (cla & 0x9C) & 0xFF | channel;
+    } else if (channel < SE.SUPPLEMENTARY_LOGICAL_CHANNEL_NUMBER_LIMIT) {
       // b7 = 1 indicates the further interindustry class byte coding
-      cla = (((cla & 0xB0) & 0xFF) | 0x40 | (channel - 4));
+      cla = (cla & 0xB0) & 0xFF | 0x40 | (channel - SE.LOGICAL_CHANNEL_NUMBER_LIMIT);
     } else {
       debug("Channel number must be within [0..19]");
       return SE.ERROR_GENERIC;
@@ -125,27 +126,12 @@ UiccConnector.prototype = {
     return cla;
   },
 
-  _getChannelNumber: function(cla) {
-    // As per GlobalPlatform Card Specification v2.2, check the 7th bit
-    let classByteCoding = (cla & 0x40);
-    if (classByteCoding === 0x00) {
-      // If 7 th bit is not set, then channel number is encoded in the 2 
-      // rightmost bits Refer to section 11.1.4.1. Possible logical channel 
-      // are: (00: 0, 01 : 1, 10 : 2, 11 : 3)
-      return cla & 0x03;
-    } else {
-      // If the 7th bit is set, channel number is encoded in the 4 rightmost
-      // bits, refer to section 11.1.4.2. Note that Supplementary Logical
-      // Channels start from 4 to 19. So add 4!
-      return (cla & 0x0F) + 4;
-    }
-  },
-
   _doGetOpenResponse: function(channel, length, callback) {
     // Le value is set. It means that this is a request for all available
     // response bytes.
-    this.exchangeAPDU(channel, (channel & 0xFF), SE.INS_GET_RESPONSE,
-                        0x00, 0x00, null, length, {
+    let cla = this._setChannelToCLAByte(SE.CLA_GET_RESPONSE, channel);
+    this.exchangeAPDU(channel, cla, SE.INS_GET_RESPONSE, 0x00, 0x00,
+                      null, length, {
       notifyExchangeAPDUResponse: function(sw1, sw2, response) {
         debug("GET Response : " + response);
         if (callback) {
@@ -169,8 +155,8 @@ UiccConnector.prototype = {
   },
 
   _doIccExchangeAPDU: function(channel, cla, ins, p1, p2, p3,
-                               data, appendResponse, callback) {
-    iccProvider.iccExchangeAPDU(PREFERRED_UICC_CLIENTID, channel, (cla & 0xFC),
+                               data, appendResp, callback) {
+    iccProvider.iccExchangeAPDU(PREFERRED_UICC_CLIENTID, channel, cla & 0xFC,
                                 ins, p1, p2, p3, data, {
       notifyExchangeAPDUResponse: (sw1, sw2, response) => {
         debug("sw1 : " + sw1 + ", sw2 : " + sw2 + ", response : " + response);
@@ -180,30 +166,30 @@ UiccConnector.prototype = {
         // Note that 'Procedure bytes'are special cases.
         // There is no need to handle '0x60' procedure byte as it implies
         // no-action from SE stack perspective. This procedure byte is not
-        // notified to application layer (?).
+        // notified to application layer.
         if (sw1 === 0x6C) {
           // Use the previous command header with length as second procedure
           // byte (SW2) as received and repeat the procedure.
-          debug("Enforce '0x6C' Procedure with sw2 : " + sw2);
 
           // Recursive! and Pass empty response '' as args, since '0x6C'
           // procedure does not have to deal with appended responses.
           this._doIccExchangeAPDU(channel, cla, ins, p1, p2,
                                   sw2, data, "", callback);
         } else if (sw1 === 0x61) {
-          debug("Enforce '0x61' Procedure with sw2 : " + sw2);
           // Since the terminal waited for a second procedure byte and
           // received it (sw2), send a GET RESPONSE command header to the UICC
           // with a maximum length of 'XX', where 'XX' is the value of the
           // second procedure byte (SW2).
 
-          // Recursive, with GET RESPONSE bytes and '0x61' procedure IS
-          // interested in appended responses.
-          // Pass appended response and note that p3=sw2.
-          this._doIccExchangeAPDU(channel, (channel & 0xFF),
-            SE.INS_GET_RESPONSE, 0x00, 0x00, sw2, null,
-            (response ? response + appendResponse : appendResponse),
-            callback);
+          let claWithChannel = this._setChannelToCLAByte(SE.CLA_GET_RESPONSE,
+                                                         channel);
+
+          // Recursive, with GET RESPONSE bytes and '0x61' procedure IS interested
+          // in appended responses. Pass appended response and note that p3=sw2.
+          this._doIccExchangeAPDU(channel, claWithChannel, SE.INS_GET_RESPONSE,
+                                  0x00, 0x00, sw2, null,
+                                  (response ? response + appendResp : appendResp),
+                                  callback);
         } else if (callback) {
           callback.notifyExchangeAPDUResponse(sw1, sw2, response);
         }
@@ -224,7 +210,7 @@ UiccConnector.prototype = {
    */
 
   /**
-   * Opens a supplementary channel on a default clientId
+   * Opens a channel on a default clientId
    */
   openChannel: function(aid, callback) {
     if (!this._isPresent) {
@@ -266,36 +252,18 @@ UiccConnector.prototype = {
       return;
     }
 
-    // See GP Spec, 11.1.4 Class Byte Coding
-    cla = this._setChannelToClassByte(cla, channel);
-    let appendLe = (data !== null) && (le !== -1);
-    // Note that P3 of the C-TPDU is set to ‘00’ in Case 1
-    // (only headers) scenarios
-    let p3 = data ? data.length : (le !== -1 ? le : 0x00);
-    let commandApduData = null;
+    cla = this._setChannelToCLAByte(cla, channel);
+    let lc = data ? data.length/2 : 0;
+    let p3 = lc || le;
 
-    // Check p3 > 0 AND the command.data length > 0. The second condition is
-    // needed to explicitly check if there are 'data bytes' indeed. If there
-    // are no 'data bytes' then 'p3' will be interpreted as 'Le'.
-    if ((p3 > 0) && (data.length > 0)) {
-      commandApduData = new Uint8Array(p3);
-      let offset = 0;
-      while (offset < SE.MAX_APDU_LEN && offset < p3) {
-        commandApduData[offset] = data[offset];
-        offset++;
-      }
-    }
-    if (commandApduData && appendLe) {
-      // Append 'le' value to data
-      let leHexStr =
-        SEUtils.byteArrayToHexString([le & 0xFF, (le >> 8) & 0xFF]);
-      commandApduData += leHexStr;
+    if (lc && le !== -1) {
+      data += SEUtils.byteArrayToHexString([le]);
     }
 
     // Pass empty response '' as args as we are not interested in appended
     // responses yet!
     debug("exchangeAPDU on Channel # " + channel);
-    this._doIccExchangeAPDU(channel, cla, ins, p1, p2, p3/2, data, "",
+    this._doIccExchangeAPDU(channel, cla, ins, p1, p2, p3, data, "",
                             callback);
   },
 
