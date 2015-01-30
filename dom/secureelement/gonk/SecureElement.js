@@ -26,7 +26,7 @@ Cu.import("resource://gre/modules/XPCOMUtils.jsm");
 Cu.import("resource://gre/modules/Services.jsm");
 Cu.import("resource://gre/modules/systemlibs.js");
 
-XPCOMUtils.defineLazyGetter(this, "SE", function() {
+XPCOMUtils.defineLazyGetter(this, "SE", () => {
   let obj = {};
   Cu.import("resource://gre/modules/se_consts.js", obj);
   return obj;
@@ -65,12 +65,8 @@ XPCOMUtils.defineLazyModuleGetter(this, "SEUtils",
                                   "resource://gre/modules/SEUtils.jsm");
 
 XPCOMUtils.defineLazyGetter(this, "UiccConnector", () => {
-  let uiccConnectorClass = Cc["@mozilla.org/secureelement/connector/uicc;1"];
-  if (uiccConnectorClass) {
-    return uiccConnectorClass.createInstance(Ci.nsISecureElementConnector);
-  }
-
-  return null;
+  let uiccClass = Cc["@mozilla.org/secureelement/connector/uicc;1"];
+  return uiccClass ? uiccClass.getService(Ci.nsISecureElementConnector) : null;
 });
 
 function getConnector(type) {
@@ -110,8 +106,8 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
     appInfoMap: {},
 
     registerSecureElementTarget: function(appId, readerTypes, target) {
-      if (this.appInfoMap[appId]) {
-        debug("Already registered SE target! appId:" + appId);
+      if (this.isAppIdRegistered(appId)) {
+        debug("AppId: " + appId + "already registered");
         return;
       }
 
@@ -129,32 +125,26 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
         return this.appInfoMap[id].target === target;
       });
 
-      if (appId) {
-        debug("Unregistered SE Target for AppId: " + appId);
-        delete this.appInfoMap[appId];
+      if (!appId) {
+        return;
       }
+
+      debug("Unregistered SE Target for AppId: " + appId);
+      delete this.appInfoMap[appId];
+    },
+
+    isAppIdRegistered: function(appId) {
+      return this.appInfoMap[appId] !== undefined;
     },
 
     getChannelCountByAppIdType: function(appId, type) {
-      let aInfo = this.appInfoMap[appId];
-      if (!aInfo) {
-        debug("Unable to get channels : " + appId);
-        return [];
-      }
-
-      return Object.keys(aInfo.channels)
-                   .filter(c => type ? aInfo.channels[c].seType === type : true)
-                   .length;
+      return Object.keys(this.appInfoMap[appId].channels)
+                   .reduce((cnt, ch) => ch.type === type ? ++cnt : cnt, 0);
     },
 
     // Add channel to the appId. Upon successfully adding the entry
     // this function will return the 'token'
     addChannel: function(appId, type, aid, channelNumber) {
-      if (!this.appInfoMap[appId]) {
-        debug("Unable to add channel, no such appId: " + appId);
-        return null;
-      }
-
       let token = UUIDGenerator.generateUUID().toString();
       this.appInfoMap[appId].channels[token] = {
         seType: type,
@@ -165,16 +155,14 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
     },
 
     removeChannel: function(appId, channelToken) {
-      if(this.appInfoMap[appId] &&
-         this.appInfoMap[appId].channels[channelToken]) {
+      if (this.appInfoMap[appId].channels[channelToken]) {
         debug("Deleting channel with token : " + channelToken);
         delete this.appInfoMap[appId].channels[channelToken];
       }
     },
 
     getChannel: function(appId, channelToken) {
-      if (!this.appInfoMap[appId] ||
-          !this.appInfoMap[appId].channels[channelToken]) {
+      if (!this.appInfoMap[appId].channels[channelToken]) {
         return null;
       }
 
@@ -240,7 +228,6 @@ SecureElementManager.prototype = {
     ppmm = null;
   },
 
-  // Private function used to retreive available readerNames
   _getAvailableReaderTypes: function() {
     let readerTypes = [];
     // TODO 1: Bug 1118096 - Add IDL so that other sub-systems such as RIL ,
@@ -256,10 +243,17 @@ SecureElementManager.prototype = {
     return readerTypes;
   },
 
-  handleOpenChannel: function(msg, callback) {
-    if (gMap.getChannelCountByAppIdType(msg.appId, msg.type) >=
-        SE.MAX_CHANNELS_ALLOWED_PER_SESSION) {
-      debug("Max channels per session exceed !!!");
+  _canOpenChannel: function(appId, type) {
+    let opened = gMap.getChannelCountByAppIdType(appId, type);
+    let limit = SE.MAX_CHANNELS_ALLOWED_PER_SESSION;
+    // UICC basic channel is not accessible see comment in se_consts.js
+    limit = type === SE.TYPE_UICC ? limit - 1 : limit;
+    return opened < limit;
+  },
+
+  _handleOpenChannel: function(msg, callback) {
+    if (!this._canOpenChannel(msg.appId, msg.type)) {
+      debug("Max channels per session exceed");
       callback({ error: SE.ERROR_GENERIC });
       return;
     }
@@ -298,9 +292,8 @@ SecureElementManager.prototype = {
     });
   },
 
-  handleTransmit: function(msg, callback) {
+  _handleTransmit: function(msg, callback) {
     let channel = gMap.getChannel(msg.appId, msg.channelToken);
-
     if (!channel) {
       debug("Invalid token:" + msg.channelToken + ", appId: " + msg.appId);
       callback({ error: SE.ERROR_GENERIC });
@@ -334,9 +327,8 @@ SecureElementManager.prototype = {
     });
   },
 
-  handleCloseChannel: function(msg, callback) {
+  _handleCloseChannel: function(msg, callback) {
     let channel = gMap.getChannel(msg.appId, msg.channelToken);
-
     if (!channel) {
       debug("Invalid token:" + msg.channelToken + ", appId:" + msg.appId);
       callback({ error: SE.ERROR_GENERIC });
@@ -364,7 +356,7 @@ SecureElementManager.prototype = {
     });
   },
 
-  handleGetSEReadersRequest: function(msg, target, callback) {
+  _handleGetSEReadersRequest: function(msg, target, callback) {
     // TODO: Bug 1118101 Get supported readerTypes based on the permissions
     // available for the given application.
     let seReaderTypes = this._getAvailableReaderTypes();
@@ -372,7 +364,7 @@ SecureElementManager.prototype = {
     callback({ readerTypes: seReaderTypes, error: SE.ERROR_NONE });
   },
 
-  handleChildProcessShutdown: function(target) {
+  _handleChildProcessShutdown: function(target) {
     let channels = gMap.getChannelsByTarget(target);
 
     let createCb = (seType, channelNumber) => {
@@ -401,6 +393,17 @@ SecureElementManager.prototype = {
     gMap.unregisterSecureElementTarget(target);
   },
 
+  _sendSEResponse: function(msg, result) {
+    let promiseStatus = (result.error === SE.ERROR_NONE) ? "Resolved" : "Rejected";
+    result.resolverId = msg.data.resolverId;
+    msg.target.sendAsyncMessage(msg.name + promiseStatus, {result: result});
+  },
+
+  _isValidMessage: function(msg) {
+    let appIdValid = gMap.isAppIdRegistered(msg.data.appId);
+    return msg.name === "SE:GetSEReaders" ? true : appIdValid;
+  },
+
   /**
    * nsIMessageListener interface methods.
    */
@@ -410,7 +413,7 @@ SecureElementManager.prototype = {
                    ": " + JSON.stringify(msg.data));
 
     if (msg.name === "child-process-shutdown") {
-      this.handleChildProcessShutdown(msg.target);
+      this._handleChildProcessShutdown(msg.target);
       return null;
     }
 
@@ -425,28 +428,28 @@ SecureElementManager.prototype = {
       return null;
     }
 
-    let callback = (result) => this.sendSEResponse(msg, result);
+    let callback = (result) => this._sendSEResponse(msg, result);
+    if (!this._isValidMessage(msg)) {
+      debug("Message not valid");
+      callback({ error: SE.ERROR_GENERIC });
+      return null;
+    }
+
     switch (msg.name) {
       case "SE:GetSEReaders":
-        this.handleGetSEReadersRequest(msg.data, msg.target, callback);
+        this._handleGetSEReadersRequest(msg.data, msg.target, callback);
         break;
       case "SE:OpenChannel":
-        this.handleOpenChannel(msg.data, callback);
+        this._handleOpenChannel(msg.data, callback);
         break;
       case "SE:CloseChannel":
-        this.handleCloseChannel(msg.data, callback);
+        this._handleCloseChannel(msg.data, callback);
         break;
       case "SE:TransmitAPDU":
-        this.handleTransmit(msg.data, callback);
+        this._handleTransmit(msg.data, callback);
         break;
     }
     return null;
-  },
-
-  sendSEResponse: function(msg, result) {
-    let promiseStatus = (result.error === SE.ERROR_NONE) ? "Resolved" : "Rejected";
-    result.resolverId = msg.data.resolverId;
-    msg.target.sendAsyncMessage(msg.name + promiseStatus, {result: result});
   },
 
   /**
