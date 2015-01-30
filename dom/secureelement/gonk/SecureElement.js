@@ -252,7 +252,7 @@ SecureElementManager.prototype = {
   },
 
   _handleOpenChannel: function(msg, callback) {
-    if (!this._canOpenChannel(msg.aid, msg.type)) {
+    if (!this._canOpenChannel(msg.appId, msg.type)) {
       debug("Max channels per session exceed");
       callback({ error: SE.ERROR_GENERIC });
       return;
