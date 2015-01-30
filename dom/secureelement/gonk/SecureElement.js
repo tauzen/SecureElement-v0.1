@@ -106,6 +106,11 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
     appInfoMap: {},
 
     registerSecureElementTarget: function(appId, readerTypes, target) {
+      if (this.isAppIdRegistered(appId)) {
+        debug("AppId: " + appId + "already registered");
+        return;
+      }
+
       this.appInfoMap[appId] = {
         target: target,
         readerTypes: readerTypes,
@@ -133,11 +138,6 @@ XPCOMUtils.defineLazyGetter(this, "gMap", function() {
     },
 
     getChannelCountByAppIdType: function(appId, type) {
-      if (!this.isAppIdRegistered(appId)) {
-        debug("Unable to get channels : " + appId);
-        return 0;
-      }
-
       return Object.keys(this.appInfoMap[appId].channels)
                    .reduce((cnt, ch) => ch.type === type ? ++cnt : cnt, 0);
     },
@@ -401,7 +401,7 @@ SecureElementManager.prototype = {
 
   _isValidMessage: function(msg) {
     let appIdValid = gMap.isAppIdRegistered(msg.data.appId);
-    return msg.name === "SE:GetSEReaders" ? !appIdValid : appIdValid;
+    return msg.name === "SE:GetSEReaders" ? true : appIdValid;
   },
 
   /**
