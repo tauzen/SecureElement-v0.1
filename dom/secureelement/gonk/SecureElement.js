@@ -243,10 +243,17 @@ SecureElementManager.prototype = {
     return readerTypes;
   },
 
+  _canOpenChannel: function(appId, type) {
+    let opened = gMap.getChannelCountByAppIdType(appId, type);
+    let limit = SE.MAX_CHANNELS_ALLOWED_PER_SESSION;
+    // UICC basic channel is not accessible see comment in se_consts.js
+    limit = type === SE.TYPE_UICC ? limit - 1 : limit;
+    return opened < limit;
+  },
+
   _handleOpenChannel: function(msg, callback) {
-    if (gMap.getChannelCountByAppIdType(msg.appId, msg.type) >=
-        SE.MAX_CHANNELS_ALLOWED_PER_SESSION) {
-      debug("Max channels per session exceed !!!");
+    if (!this._canOpenChannel(msg.aid, msg.type)) {
+      debug("Max channels per session exceed");
       callback({ error: SE.ERROR_GENERIC });
       return;
     }
