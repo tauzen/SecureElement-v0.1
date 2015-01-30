@@ -228,7 +228,6 @@ SecureElementManager.prototype = {
     ppmm = null;
   },
 
-  // Private function used to retreive available readerNames
   _getAvailableReaderTypes: function() {
     let readerTypes = [];
     // TODO 1: Bug 1118096 - Add IDL so that other sub-systems such as RIL ,
@@ -244,7 +243,7 @@ SecureElementManager.prototype = {
     return readerTypes;
   },
 
-  handleOpenChannel: function(msg, callback) {
+  _handleOpenChannel: function(msg, callback) {
     if (gMap.getChannelCountByAppIdType(msg.appId, msg.type) >=
         SE.MAX_CHANNELS_ALLOWED_PER_SESSION) {
       debug("Max channels per session exceed !!!");
@@ -286,7 +285,7 @@ SecureElementManager.prototype = {
     });
   },
 
-  handleTransmit: function(msg, callback) {
+  _handleTransmit: function(msg, callback) {
     let channel = gMap.getChannel(msg.appId, msg.channelToken);
     if (!channel) {
       debug("Invalid token:" + msg.channelToken + ", appId: " + msg.appId);
@@ -321,7 +320,7 @@ SecureElementManager.prototype = {
     });
   },
 
-  handleCloseChannel: function(msg, callback) {
+  _handleCloseChannel: function(msg, callback) {
     let channel = gMap.getChannel(msg.appId, msg.channelToken);
     if (!channel) {
       debug("Invalid token:" + msg.channelToken + ", appId:" + msg.appId);
@@ -350,7 +349,7 @@ SecureElementManager.prototype = {
     });
   },
 
-  handleGetSEReadersRequest: function(msg, target, callback) {
+  _handleGetSEReadersRequest: function(msg, target, callback) {
     // TODO: Bug 1118101 Get supported readerTypes based on the permissions
     // available for the given application.
     let seReaderTypes = this._getAvailableReaderTypes();
@@ -358,7 +357,7 @@ SecureElementManager.prototype = {
     callback({ readerTypes: seReaderTypes, error: SE.ERROR_NONE });
   },
 
-  handleChildProcessShutdown: function(target) {
+  _handleChildProcessShutdown: function(target) {
     let channels = gMap.getChannelsByTarget(target);
 
     let createCb = (seType, channelNumber) => {
@@ -387,7 +386,7 @@ SecureElementManager.prototype = {
     gMap.unregisterSecureElementTarget(target);
   },
 
-  sendSEResponse: function(msg, result) {
+  _sendSEResponse: function(msg, result) {
     let promiseStatus = (result.error === SE.ERROR_NONE) ? "Resolved" : "Rejected";
     result.resolverId = msg.data.resolverId;
     msg.target.sendAsyncMessage(msg.name + promiseStatus, {result: result});
@@ -407,7 +406,7 @@ SecureElementManager.prototype = {
                    ": " + JSON.stringify(msg.data));
 
     if (msg.name === "child-process-shutdown") {
-      this.handleChildProcessShutdown(msg.target);
+      this._handleChildProcessShutdown(msg.target);
       return null;
     }
 
@@ -422,7 +421,7 @@ SecureElementManager.prototype = {
       return null;
     }
 
-    let callback = (result) => this.sendSEResponse(msg, result);
+    let callback = (result) => this._sendSEResponse(msg, result);
     if (!this._isValidMessage(msg)) {
       debug("Message not valid");
       callback({ error: SE.ERROR_GENERIC });
@@ -431,16 +430,16 @@ SecureElementManager.prototype = {
 
     switch (msg.name) {
       case "SE:GetSEReaders":
-        this.handleGetSEReadersRequest(msg.data, msg.target, callback);
+        this._handleGetSEReadersRequest(msg.data, msg.target, callback);
         break;
       case "SE:OpenChannel":
-        this.handleOpenChannel(msg.data, callback);
+        this._handleOpenChannel(msg.data, callback);
         break;
       case "SE:CloseChannel":
-        this.handleCloseChannel(msg.data, callback);
+        this._handleCloseChannel(msg.data, callback);
         break;
       case "SE:TransmitAPDU":
-        this.handleTransmit(msg.data, callback);
+        this._handleTransmit(msg.data, callback);
         break;
     }
     return null;
