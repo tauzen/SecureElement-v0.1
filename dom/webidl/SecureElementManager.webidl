@@ -7,7 +7,8 @@
 [CheckPermissions="secureelement-manage",
  AvailableIn="PrivilegedApps",
  JSImplementation="@mozilla.org/secureelement/manager;1",
- NavigatorProperty="seManager"]
+ NavigatorProperty="seManager",
+ NoInterfaceObject]
 interface SEManager {
 
   /**
