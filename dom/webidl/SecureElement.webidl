@@ -146,13 +146,16 @@ interface SECommand {
  AvailableIn="PrivilegedApps",
  JSImplementation="@mozilla.org/secureelement/response;1"]
 interface SEResponse {
-   // Response received on this 'channel' object.
-   readonly attribute SEChannel channel;
+  // Response received on this 'channel' object.
+  [Constant]
+  readonly attribute SEChannel channel;
 
   // First octet of response's status word
+  [Constant]
   readonly attribute octet        sw1;
 
   // Second octet of response's status word
+  [Constant]
   readonly attribute octet        sw2;
 
   // The response's data field bytes
