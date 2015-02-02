@@ -408,7 +408,7 @@ SEChannelImpl.prototype = {
  * Instance of 'SECommandImpl' dom object represent C-APDU to be sent to a
  * secure element.
  */
-function SECommandImpl() {}
+/*function SECommandImpl() {}
 
 SECommandImpl.prototype = {
   cla: 0x00,
@@ -435,7 +435,7 @@ SECommandImpl.prototype = {
     this.data = data;
     this.le = le;
   },
-};
+};*/
 
 /**
  * Instance of 'SEResponseImpl' object represent APDU response received
@@ -603,5 +603,5 @@ SEManagerImpl.prototype = {
 };
 
 this.NSGetFactory = XPCOMUtils.generateNSGetFactory([
-  SECommandImpl, SEResponseImpl, SEChannelImpl, SESessionImpl, SEReaderImpl, SEManagerImpl
+  /*SECommandImpl, */SEResponseImpl, SEChannelImpl, SESessionImpl, SEReaderImpl, SEManagerImpl
 ]);

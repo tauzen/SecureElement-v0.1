@@ -115,7 +115,7 @@ interface SEChannel {
    * SEResponse object. Otherwise, rejected with the error of type 'SEError'.
    */
   [Throws]
-  Promise<SEResponse> transmit(SECommand command);
+  Promise<SEResponse> transmit(optional SECommand command);
 
   /**
    * Closes the active channel.
@@ -127,19 +127,18 @@ interface SEChannel {
 
 
 // Interface that represents an APDU command to be sent to a secure element.
-[CheckPermissions="secureelement-manage",
- AvailableIn="PrivilegedApps",
- JSImplementation="@mozilla.org/secureelement/command;1",
- Constructor(octet cla, octet ins, octet p1, octet p2, optional sequence<octet>? data = null, optional short le= -1)]
-interface SECommand {
-
-  attribute octet                           cla;    // 1 Byte  : Class Byte
-  attribute octet                           ins;    // 1 Byte  : Instruction Byte
-  attribute octet                           p1;     // 1 Byte  : First Octet of Parameters Byte
-  attribute octet                           p2;     // 1 Byte  : Second Octet of Parameters Byte
-  [Cached, Pure] attribute sequence<octet>? data;   // Sequence of octets
-  attribute short                           le;     // The length of the expected
-                                                    // response data or -1 if none is expected
+//[CheckPermissions="secureelement-manage",
+// AvailableIn="PrivilegedApps",
+// JSImplementation="@mozilla.org/secureelement/command;1",
+// Constructor(octet cla, octet ins, octet p1, octet p2, optional sequence<octet>? data = null, optional short le= -1)]
+dictionary SECommand {
+  required octet cla; // 1 Byte  : Class Byte
+  required octet ins; // 1 Byte  : Instruction Byte
+  required octet p1;  // 1 Byte  : First Octet of Parameters Byte
+  required octet p2;  // 1 Byte  : Second Octet of Parameters Byte
+  sequence<octet>? data = null;   // Sequence of octets
+  short le = -1; // The length of the expected
+                 // response data or -1 if none is expected
 };
 
 [CheckPermissions="secureelement-manage",
