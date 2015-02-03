@@ -86,14 +86,14 @@ PromiseHelpersSubclass.prototype = {
 let PromiseHelpers;
 
 /**
- * Instance of 'SEReader' class is the connector to a secure element.
+ * Instance of 'SEReaderImpl' class is the connector to a secure element.
  * A reader may or may not have a secure element present, since some
  * secure elements are removable in nature (eg:- 'uicc'). These
  * Readers can be physical devices or virtual devices.
  */
-function SEReader() {}
+function SEReaderImpl() {}
 
-SEReader.prototype = {
+SEReaderImpl.prototype = {
   _window: null,
 
   _sessions: [],
@@ -119,7 +119,7 @@ SEReader.prototype = {
 
   openSession: function openSession() {
     return PromiseHelpers.createSEPromise((resolverId) => {
-      let chromeObj = new SESession();
+      let chromeObj = new SESessionImpl();
       chromeObj.initialize(this._window, this);
       let contentObj = this._window.SESession._create(this._window, chromeObj);
       this._sessions.push(contentObj);
@@ -156,14 +156,14 @@ SEReader.prototype = {
 };
 
 /**
- * Instance of 'SESession' object represent a connection session
+ * Instance of 'SESessionImpl' object represent a connection session
  * to one of the secure elements available on the device.
  * These objects can be used to get a communication channel with an application
  * hosted by the Secure Element.
  */
-function SESession() {}
+function SESessionImpl() {}
 
-SESession.prototype = {
+SESessionImpl.prototype = {
   _window: null,
 
   _channels: [],
@@ -268,13 +268,13 @@ SESession.prototype = {
 };
 
 /**
- * Instance of 'SEChannel' object represent an ISO/IEC 7816-4 specification
+ * Instance of 'SEChannelImpl' object represent an ISO/IEC 7816-4 specification
  * channel opened to a secure element. It can be either a logical channel
  * or basic channel.
  */
-function SEChannel() {}
+function SEChannelImpl() {}
 
-SEChannel.prototype = {
+SEChannelImpl.prototype = {
   _window: null,
 
   _channelToken: null,
@@ -317,6 +317,13 @@ SEChannel.prototype = {
   },
 
   transmit: function transmit(command) {
+    // TODO remove this once it will be possible to have a non-optional dict
+    // in the WebIDL
+    if (!command) {
+      return PromiseHelpers.rejectWithSEError(SE.ERROR_GENERIC +
+        " SECommand dict must be defined");
+    }
+
     this._checkClosed();
 
     let dataLen = command.data ? command.data.length : 0;
@@ -355,7 +362,7 @@ SEChannel.prototype = {
        * @params for 'SE:TransmitAPDU'
        *
        * resolverId  : Id that identifies this IPC request.
-       * apdu        : Object that wraps SECommand parameters
+       * apdu        : Object that wraps SECommandImpl parameters
        * type        : Reader type ('uicc' / 'eSE')
        * channelToken: Token that identifies the current channel over which
                        'c-apdu' is being sent.
@@ -405,12 +412,12 @@ SEChannel.prototype = {
 };
 
 /**
- * Instance of 'SECommand' dom object represent C-APDU to be sent to a
+ * Instance of 'SECommandImpl' dom object represent C-APDU to be sent to a
  * secure element.
  */
-function SECommand() {}
+/*function SECommandImpl() {}
 
-SECommand.prototype = {
+SECommandImpl.prototype = {
   cla: 0x00,
 
   ins: 0x00,
@@ -435,15 +442,15 @@ SECommand.prototype = {
     this.data = data;
     this.le = le;
   },
-};
+};*/
 
 /**
- * Instance of 'SEResponse' object represent APDU response received
+ * Instance of 'SEResponseImpl' object represent APDU response received
  * from a secure element.
  */
-function SEResponse() {}
+function SEResponseImpl() {}
 
-SEResponse.prototype = {
+SEResponseImpl.prototype = {
   sw1: 0x00,
 
   sw2: 0x00,
@@ -471,11 +478,11 @@ SEResponse.prototype = {
 };
 
 /**
- * SEManager
+ * SEManagerImpl
  */
-function SEManager() {}
+function SEManagerImpl() {}
 
-SEManager.prototype = {
+SEManagerImpl.prototype = {
   __proto__: DOMRequestIpcHelper.prototype,
 
   _window: null,
@@ -550,7 +557,7 @@ SEManager.prototype = {
       case "SE:GetSEReadersResolved":
         let readers = [];
         for (let i = 0; i < result.readerTypes.length; i++) {
-          chromeObj = new SEReader();
+          chromeObj = new SEReaderImpl();
           chromeObj.initialize(this._window, result.readerTypes[i]);
           contentObj = this._window.SEReader._create(this._window, chromeObj);
           readers.push(contentObj);
@@ -558,7 +565,7 @@ SEManager.prototype = {
         resolver.resolve(readers);
         break;
       case "SE:OpenChannelResolved":
-        chromeObj = new SEChannel();
+        chromeObj = new SEChannelImpl();
         chromeObj.initialize(this._window,
                              result.channelToken,
                              result.isBasicChannel,
@@ -572,7 +579,7 @@ SEManager.prototype = {
         resolver.resolve(contentObj);
         break;
       case "SE:TransmitAPDUResolved":
-        chromeObj = new SEResponse();
+        chromeObj = new SEResponseImpl();
         chromeObj.initialize(result.sw1,
                              result.sw2,
                              result.response,
@@ -603,5 +610,5 @@ SEManager.prototype = {
 };
 
 this.NSGetFactory = XPCOMUtils.generateNSGetFactory([
-  SECommand, SEResponse, SEChannel, SESession, SEReader, SEManager
+  /*SECommandImpl, */SEResponseImpl, SEChannelImpl, SESessionImpl, SEReaderImpl, SEManagerImpl
 ]);
