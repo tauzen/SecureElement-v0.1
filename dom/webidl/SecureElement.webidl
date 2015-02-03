@@ -23,6 +23,17 @@ enum SEChannelType {
   "logical"
 };
 
+// Dictionary that represents an APDU command to be sent to a secure element.
+dictionary SECommand {
+  required octet cla;            // Class Byte
+  required octet ins;            // Instruction Byte
+  required octet p1;             // First Octet of Parameters Byte
+  required octet p2;             // Second Octet of Parameters Byte
+  sequence<octet>? data = null;  // Sequence of octets
+  short le = -1;                 // The length of the expected
+                                 // response data or -1 if none is expected
+};
+
 [CheckPermissions="secureelement-manage",
  AvailableIn="PrivilegedApps",
  JSImplementation="@mozilla.org/secureelement/reader;1"]
@@ -125,37 +136,18 @@ interface SEChannel {
   Promise<void> close();
 };
 
-
-// Interface that represents an APDU command to be sent to a secure element.
-//[CheckPermissions="secureelement-manage",
-// AvailableIn="PrivilegedApps",
-// JSImplementation="@mozilla.org/secureelement/command;1",
-// Constructor(octet cla, octet ins, octet p1, octet p2, optional sequence<octet>? data = null, optional short le= -1)]
-dictionary SECommand {
-  required octet cla; // 1 Byte  : Class Byte
-  required octet ins; // 1 Byte  : Instruction Byte
-  required octet p1;  // 1 Byte  : First Octet of Parameters Byte
-  required octet p2;  // 1 Byte  : Second Octet of Parameters Byte
-  sequence<octet>? data = null;   // Sequence of octets
-  short le = -1; // The length of the expected
-                 // response data or -1 if none is expected
-};
-
 [CheckPermissions="secureelement-manage",
  AvailableIn="PrivilegedApps",
  JSImplementation="@mozilla.org/secureelement/response;1"]
 interface SEResponse {
   // Response received on this 'channel' object.
-  [Constant]
-  readonly attribute SEChannel channel;
+  [Constant] readonly attribute SEChannel channel;
 
   // First octet of response's status word
-  [Constant]
-  readonly attribute octet        sw1;
+  [Constant] readonly attribute octet        sw1;
 
   // Second octet of response's status word
-  [Constant]
-  readonly attribute octet        sw2;
+  [Constant] readonly attribute octet        sw2;
 
   // The response's data field bytes
   [Cached, Pure] readonly attribute sequence<octet>?  data;

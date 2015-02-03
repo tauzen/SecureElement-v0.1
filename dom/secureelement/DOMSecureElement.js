@@ -317,6 +317,13 @@ SEChannelImpl.prototype = {
   },
 
   transmit: function transmit(command) {
+    // TODO remove this once it will be possible to have a non-optional dict
+    // in the WebIDL
+    if (!command) {
+      return PromiseHelpers.rejectWithSEError(SE.ERROR_GENERIC +
+        " SECommand dict must be defined");
+    }
+
     this._checkClosed();
 
     let dataLen = command.data ? command.data.length : 0;
