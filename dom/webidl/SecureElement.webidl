@@ -34,8 +34,7 @@ dictionary SECommand {
                                  // response data or -1 if none is expected
 };
 
-[Pref="dom.secureelement.enabled",
- CheckPermissions="secureelement-manage",
+[CheckPermissions="secureelement-manage",
  AvailableIn="PrivilegedApps",
  JSImplementation="@mozilla.org/secureelement/reader;1"]
 interface SEReader {
@@ -63,8 +62,7 @@ interface SEReader {
   Promise<void> closeAll();
 };
 
-[Pref="dom.secureelement.enabled",
- CheckPermissions="secureelement-manage",
+[CheckPermissions="secureelement-manage",
  AvailableIn="PrivilegedApps",
  JSImplementation="@mozilla.org/secureelement/session;1"]
 interface SESession {
@@ -99,8 +97,7 @@ interface SESession {
   Promise<void> closeAll();
 };
 
-[Pref="dom.secureelement.enabled",
- CheckPermissions="secureelement-manage",
+[CheckPermissions="secureelement-manage",
  AvailableIn="PrivilegedApps",
  JSImplementation="@mozilla.org/secureelement/channel;1"]
 interface SEChannel {
@@ -139,8 +136,7 @@ interface SEChannel {
   Promise<void> close();
 };
 
-[Pref="dom.secureelement.enabled",
- CheckPermissions="secureelement-manage",
+[CheckPermissions="secureelement-manage",
  AvailableIn="PrivilegedApps",
  JSImplementation="@mozilla.org/secureelement/response;1"]
 interface SEResponse {
