@@ -362,7 +362,7 @@ SEChannelImpl.prototype = {
        * @params for 'SE:TransmitAPDU'
        *
        * resolverId  : Id that identifies this IPC request.
-       * apdu        : Object that wraps SECommandImpl parameters
+       * apdu        : Object containing APDU data
        * type        : Reader type ('uicc' / 'eSE')
        * channelToken: Token that identifies the current channel over which
                        'c-apdu' is being sent.
@@ -410,39 +410,6 @@ SEChannelImpl.prototype = {
     this._isClosed = isClosed;
   }
 };
-
-/**
- * Instance of 'SECommandImpl' dom object represent C-APDU to be sent to a
- * secure element.
- */
-/*function SECommandImpl() {}
-
-SECommandImpl.prototype = {
-  cla: 0x00,
-
-  ins: 0x00,
-
-  p1: 0xFF,
-
-  p2: 0xFF,
-
-  data: null,
-
-  le: -1,
-
-  classID: Components.ID("{cb8ccb1c-0e99-4a62-bf7d-11acc13848e0}"),
-  contractID: "@mozilla.org/secureelement/command;1",
-  QueryInterface: XPCOMUtils.generateQI([Ci.nsISupports]),
-
-  __init: function __init(cla, ins, p1, p2, data, le) {
-    this.cla = cla;
-    this.ins = ins;
-    this.p1 = p1;
-    this.p2 = p2;
-    this.data = data;
-    this.le = le;
-  },
-};*/
 
 /**
  * Instance of 'SEResponseImpl' object represent APDU response received
@@ -610,5 +577,5 @@ SEManagerImpl.prototype = {
 };
 
 this.NSGetFactory = XPCOMUtils.generateNSGetFactory([
-  /*SECommandImpl, */SEResponseImpl, SEChannelImpl, SESessionImpl, SEReaderImpl, SEManagerImpl
+  SEResponseImpl, SEChannelImpl, SESessionImpl, SEReaderImpl, SEManagerImpl
 ]);
