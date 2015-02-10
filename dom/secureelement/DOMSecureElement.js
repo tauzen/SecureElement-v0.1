@@ -327,9 +327,9 @@ SEChannelImpl.prototype = {
     this._checkClosed();
 
     let dataLen = command.data ? command.data.length : 0;
-    if ((SE.APDU_HEADER_LEN + dataLen) > SE.MAX_APDU_LEN) {
+    if (dataLen > SE.MAX_APDU_LEN) {
       return PromiseHelpers.rejectWithSEError(SE.ERROR_GENERIC +
-             " Command length exceeds max limit - 255. " +
+             " Command data length exceeds max limit - 255. " +
              " Extended APDU is not supported!");
     }
 
