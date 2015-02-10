@@ -4278,5 +4278,5 @@ pref("dom.udpsocket.enabled", false);
 
 // Secure Element API
 #ifdef MOZ_SECUREELEMENT
-pref("dom.secureelement.enabled", false)
+pref("dom.secureelement.enabled", true)
 #endif
