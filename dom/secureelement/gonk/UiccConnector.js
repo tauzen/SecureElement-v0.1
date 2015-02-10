@@ -252,11 +252,16 @@ UiccConnector.prototype = {
       return;
     }
 
+    if (data && data.length % 2 !== 0) {
+      callback.notifyError("Data should be a hex string with length % 2 === 0");
+      return;
+    }
+
     cla = this._setChannelToCLAByte(cla, channel);
-    let lc = data ? data.length/2 : 0;
+    let lc = data ? data.length / 2 : 0;
     let p3 = lc || le;
 
-    if (lc && le !== -1) {
+    if (lc && (le !== -1)) {
       data += SEUtils.byteArrayToHexString([le]);
     }
 
