@@ -522,7 +522,7 @@ SEManagerImpl.prototype = {
     debug("receiveMessage(): " + message.name);
     switch (message.name) {
       case "SE:GetSEReadersResolved":
-        let readers = [];
+        let readers = new this._window.Array();
         for (let i = 0; i < result.readerTypes.length; i++) {
           chromeObj = new SEReaderImpl();
           chromeObj.initialize(this._window, result.readerTypes[i]);
