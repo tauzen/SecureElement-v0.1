@@ -93,9 +93,11 @@ function ACEService() {
   this._rulesManager =
     Cc["@mozilla.org/secureelement/access-control/rules-manager/gp;1"]
     .getService(Ci.nsIAccessRulesManager);
-  this._rulesManager.init().then(() => {
-    debug("Rule Manager initialised");
-  });
+
+  // don't initialise here for now since ACE is lazy loaded by SE
+  // this._rulesManager.init().then(() => {
+  //  debug("Rule Manager initialised");
+  // });
 }
 
 ACEService.prototype = {
